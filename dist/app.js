@@ -12,10 +12,8 @@
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.3"/><path d="m4 17 4.5-4 3 2.5 3.5-4 5 5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
-    chart: '<path d="M4 19V5m0 14h16M8 15l4-4 3 2 5-6"/>',
     x: '<path d="m6 6 12 12M6 18 18 6"/>',
     edit: '<path d="m14 6 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20Z"/>',
-    device: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 17h4"/>',
     download: '<path d="M12 4v11m-4-4 4 4 4-4M5 17v3h14v-3"/>'
   };
   const navigation = [
@@ -112,16 +110,14 @@
     }).join('');
   }
 
-  function sectionsMarkup(includeAll) {
-    const all = includeAll ? '<button type="button" class="section-button" data-group="all" aria-pressed="' + (activeGroup === null) + '">전체</button>' : '';
+  function sectionsMarkup() {
+    const all = '<button type="button" class="section-button" data-group="all" aria-pressed="' + (activeGroup === null) + '">전체</button>';
     return all + board.goals.map((group, index) => {
       const color = model.palettes[group.block][3];
-      return '<button type="button" class="section-button" data-group="' + index + '" aria-pressed="' + (view === 'board' && activeGroup === index) + '"><span class="section-dot" style="--accent:' + color + '"></span><span class="section-label">' + escape(groupLabel(index)) + '</span></button>';
+      const label = groupLabel(index);
+      return '<button type="button" class="section-button" data-group="' + index + '" aria-pressed="' + (activeGroup === index) +
+        '"><span class="section-dot" style="--area:' + color + '"></span><span class="section-label">' + escape(label) + '</span></button>';
     }).join('');
-  }
-
-  function cardHeading(symbol, title) {
-    return '<div class="card-head"><div class="card-icon">' + icon(symbol) + '</div><h2>' + title + '</h2></div>';
   }
 
   function dateLabel(date) {
@@ -131,35 +127,30 @@
   function recentRow(entry, showPhoto) {
     const photo = showPhoto && entry.goal.photo
       ? '<img src="' + escape(entry.goal.photo) + '" alt="완료 인증 사진" loading="lazy">' : '';
+    const accent = entry.groupIndex === null ? model.palettes[4][3] : model.palettes[model.groups[entry.groupIndex]][3];
     return '<button type="button" class="recent-row" data-edit="' + entry.id + '">' +
-      '<span class="recent-check">' + icon('check') + '</span>' +
+      '<span class="recent-check" style="--area:' + accent + '">' + icon('check') + '</span>' +
       '<span class="recent-copy"><strong>' + escape(entry.goal.text) + '</strong><small>' +
       escape(entryLabel(entry)) + ' · ' + dateLabel(entry.goal.doneAt) + '</small></span>' + photo + '</button>';
   }
 
   function renderInsights(stats) {
-    const circle = '<svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="33" fill="none" stroke="#e9efe5" stroke-width="8"/>' +
-      '<circle cx="40" cy="40" r="33" fill="none" stroke="#4d8755" stroke-width="8" stroke-linecap="round" pathLength="100" stroke-dasharray="' + stats.percent + ' 100"' +
-      (stats.percent === 0 ? ' opacity="0"' : '') + '/></svg>';
     const recent = stats.completed.length
       ? '<div class="recent-list">' + stats.completed.slice(0, 3).map(entry => recentRow(entry, false)).join('') + '</div>'
       : '<p class="empty-note">완료한 목표가 여기에 표시돼요.</p>';
+    const recentPanel = view === 'board'
+      ? '<section class="panel"><div class="card-head"><h2>최근 완료</h2>' +
+        (stats.completed.length ? '<button type="button" class="text-button" data-view="completed">전체 보기</button>' : '') +
+        '</div>' + recent + '</section>' : '';
     $('insights').innerHTML =
-      '<section class="panel progress-card">' + cardHeading('chart', '실행 목표 진행률') +
-      '<div class="progress-body"><div class="ring">' + circle + '<strong>' + stats.percent + '%</strong></div>' +
-      '<div class="progress-text"><strong>' + stats.done + ' / ' + stats.total + '개</strong><p>등록한 실행 목표 기준</p></div></div>' +
-      '<div class="metrics"><div class="metric"><strong>' + stats.done + '</strong>완료</div><div class="metric"><strong>' + (stats.total - stats.done) + '</strong>남은 목표</div></div></section>' +
-      '<section class="panel">' + cardHeading('checkCircle', '최근 완료') + recent +
-      (stats.completed.length ? '<button type="button" class="text-button" data-view="completed">완료 기록 보기</button>' : '') + '</section>' +
-      '<section class="panel share-card">' + cardHeading('share', '친구와 목표 공유') +
-      '<p>보여주고 싶은 목표를 골라 이미지로 보내세요.</p><button type="button" class="button secondary" data-action="share">' +
-      icon('share') + ' 공유할 목표 고르기</button></section>';
+      '<section class="panel"><h2>실행 목표 진행률</h2><p class="progress-percent">' + stats.percent + '%</p>' +
+      '<progress class="progress-track" max="100" value="' + stats.percent + '" aria-label="실행 목표 진행률"></progress>' +
+      '<p class="progress-label"><span>완료 <strong>' + stats.done + '</strong> / ' + stats.total + '개</span><span>남은 목표 ' +
+      (stats.total - stats.done) + '개</span></p></section>' + recentPanel;
   }
 
   function renderBoard() {
-    const art = '<div class="hero-art" aria-hidden="true">' + Array.from({length: 9}, (_, index) => '<i>' + (index === 4 ? icon('check') : '') + '</i>').join('') + '</div>';
-    const headline = board.core.text || '중심 목표를 정해 볼까요?';
-    const subtitle = board.sample ? '칸을 눌러 예시를 편집하거나, 빈 목표판에서 시작하세요.' : '중심 목표를 8가지 영역과 작은 실행으로 나눠보세요.';
+    const headline = board.core.text || '중심 목표 추가';
     const sample = board.sample ? '<button type="button" class="sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
     const blocks = Array.from({length: 9}, (_, block) => {
       const colors = model.palettes[block];
@@ -167,7 +158,8 @@
       const cells = Array.from({length: 9}, (_, position) => {
         const entry = model.boardCell(board, block, position);
         const goal = entry.goal;
-        const accent = block === 4 && position !== 4 ? ' style="--block:' + model.palettes[position][0] + '"' : '';
+        const mirrored = block === 4 && position !== 4 ? model.palettes[position] : null;
+        const accent = mirrored ? ' style="--block:' + mirrored[0] + ';--area:' + mirrored[3] + '"' : '';
         const cellType = entry.kind === 'action' ? '' : ' ' + entry.kind;
         const name = entry.kind === 'action' ? entryLabel(entry) + ' 실행 목표' : entryLabel(entry);
         const label = name + (goal.text ? ' · ' + goal.text : ' 추가') + (goal.doneAt ? ' · 완료' : '');
@@ -177,29 +169,27 @@
           (goal.text ? '<span>' + escape(goal.text) + '</span>' : icon('plus')) + mark + '</button>';
       }).join('');
       return '<div class="block' + selected + '" style="--block:' + colors[0] + ';--cell:' + colors[1] +
-        ';--block-line:' + colors[2] + '" role="group" aria-label="' +
+        ';--block-line:' + colors[2] + ';--area:' + colors[3] + '" role="group" aria-label="' +
         escape(block === 4 ? '중심 목표와 영역 목표' : groupLabel(model.groups.indexOf(block))) + '">' + cells + '</div>';
     }).join('');
-    const filter = activeGroup === null ? '' : '<button type="button" class="button subtle" data-group="all">전체 보기</button>';
-    return '<section class="hero"><div class="hero-copy"><div class="hero-kicker">' + icon('target') + ' 나의 중심 목표</div>' +
-      '<h1>' + escape(headline) + '<button type="button" class="edit-core" data-edit="core" aria-label="중심 목표 편집">' + icon('edit') + '</button></h1>' +
-      '<p>' + subtitle + '</p>' + sample + '</div>' + art + '</section>' +
-      '<section class="panel board-panel" aria-labelledby="board-title"><div class="board-head"><div><h2 id="board-title">내 만다라트</h2>' +
-      '<p>칸을 눌러 목표를 추가하거나 완료를 기록하세요.</p></div>' + filter + '</div>' +
-      '<div class="mobile-filters" aria-label="목표 영역">' + sectionsMarkup(true) + '</div>' +
+    return '<section class="panel board-panel" aria-label="만다라트 목표판">' +
+      '<div class="core-row"><span class="core-symbol">' + icon('target') + '</span>' +
+      '<div class="core-copy"><span>중심 목표</span><button class="core-title" type="button" data-edit="core">' +
+      escape(headline) + icon('edit') + '</button></div>' + sample + '</div>' +
+      '<div class="area-filters" role="group" aria-label="목표 영역">' + sectionsMarkup() + '</div>' +
       '<div class="board-scroll"><div class="board' + (activeGroup === null ? '' : ' group-focus') + '" aria-label="9×9 만다라트 목표판">' + blocks + '</div></div>' +
-      '<div class="legend"><span><i style="--legend:#1d4734"></i>중심 목표</span><span><i style="--legend:#dce9d8"></i>영역 목표</span>' +
-      '<span><i style="--legend:#f3f6ee"></i>실행 목표</span><span><i style="--legend:#6c9e68"></i>완료 표시</span></div></section>';
+      '<div class="legend"><span><i style="--key:#d2bdff"></i>중심 목표</span><span><i style="--key:#3b314a"></i>영역 목표</span>' +
+      '<span><i style="--key:#1e1c23"></i>실행 목표</span><span>' + icon('check') + ' 완료</span></div></section>';
   }
 
   function render() {
     const stats = model.progress(board);
-    $('side-nav').innerHTML = navMarkup();
-    $('mobile-nav').innerHTML = navMarkup();
-    $('sections').innerHTML = '<h2 class="side-caption">목표 영역</h2>' + sectionsMarkup(false);
-    $('breadcrumb-label').textContent = view === 'board' ? '만다라트' : '완료 기록';
+    const nav = navMarkup();
+    $('desktop-nav').innerHTML = nav;
+    $('mobile-nav').innerHTML = nav;
+    $('page-title').textContent = view === 'board' ? '내 만다라트' : '완료 기록';
     $('main-view').innerHTML = view === 'board' ? renderBoard() :
-      '<section class="panel page-panel"><h1>완료 기록</h1><p>완료한 목표와 인증 사진을 다시 볼 수 있어요.</p>' +
+      '<section class="panel page-panel" aria-label="완료한 목표">' +
       (stats.completed.length ? '<div class="completed-list">' + stats.completed.map(entry => recentRow(entry, true)).join('') + '</div>'
         : '<p class="empty-note">아직 완료한 목표가 없어요.</p>') + '</section>';
     renderInsights(stats);
@@ -466,13 +456,13 @@
     canvas.width = 1260;
     canvas.height = 1360;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#f7f8f4';
+    ctx.fillStyle = '#0d0d10';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = canvasFont(27, 750);
-    ctx.fillStyle = '#326045';
+    ctx.fillStyle = '#d2bdff';
     ctx.fillText('만다라트 메이트', 60, 65);
     ctx.font = canvasFont(42, 850);
-    ctx.fillStyle = '#1e2b23';
+    ctx.fillStyle = '#f6f5f9';
     const headline = writeLines(ctx, board.core.text || '내 만다라트', 1140, 1)[0];
     ctx.fillText(headline, 60, 124);
     ctx.textAlign = 'center';
@@ -487,16 +477,17 @@
         const cx = x + 4 + (pos % 3) * 122;
         const cy = y + 4 + Math.floor(pos / 3) * 122;
         const isCore = entry.kind === 'core';
-        const fill = isCore ? '#1d4734' : entry.kind === 'goal' ? model.palettes[block === 4 ? pos : block][0] : colors[1];
+        const areaColors = block === 4 && pos !== 4 ? model.palettes[pos] : colors;
+        const fill = isCore ? '#d2bdff' : entry.kind === 'goal' ? areaColors[0] : colors[1];
         rectangle(ctx, cx, cy, 120, 120, 6, fill);
         if (entry.goal.doneAt) {
-          rectangle(ctx, cx + 92, cy + 5, 22, 22, 11, '#28553c');
+          rectangle(ctx, cx + 92, cy + 5, 22, 22, 5, isCore ? '#211532' : areaColors[3]);
           ctx.font = canvasFont(16, 750);
-          ctx.fillStyle = '#fff';
+          ctx.fillStyle = isCore ? '#d2bdff' : '#121216';
           ctx.fillText('✓', cx + 103, cy + 16);
         }
         ctx.font = canvasFont(18, isCore ? 800 : 650);
-        ctx.fillStyle = isCore ? '#fff' : '#25382b';
+        ctx.fillStyle = isCore ? '#211532' : entry.kind === 'goal' ? areaColors[3] : '#f6f5f9';
         const lines = writeLines(ctx, entry.goal.text, 104, 4);
         lines.forEach((line, i) => ctx.fillText(line, cx + 60, cy + 60 + (i - (lines.length - 1) / 2) * 20));
       }
@@ -515,25 +506,25 @@
       return {entry, hasPhoto, lines, height: Math.max(hasPhoto ? 112 : 82, 53 + lines.length * 30)};
     });
     canvas.height = 158 + items.reduce((sum, item) => sum + item.height + 8, 0) + 22;
-    ctx.fillStyle = '#eef3e9';
+    ctx.fillStyle = '#0d0d10';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1d4734';
+    ctx.fillStyle = '#d2bdff';
     ctx.font = canvasFont(22, 750);
     ctx.fillText('만다라트 메이트', 42, 52);
     ctx.font = canvasFont(38, 850);
     ctx.fillText('공유한 목표 · ' + entries.length + '개', 42, 106);
     let y = 138;
     for (const item of items) {
-      rectangle(ctx, 40, y, 720, item.height, 12, '#ffffff');
+      rectangle(ctx, 40, y, 720, item.height, 12, '#202027');
       const done = item.entry.goal.doneAt;
-      rectangle(ctx, 55, y + 18, 26, 26, 13, done ? '#28553c' : '#e6f0e2');
-      ctx.fillStyle = done ? '#ffffff' : '#28553c';
+      rectangle(ctx, 55, y + 18, 26, 26, 5, done ? '#d2bdff' : '#32313c');
+      ctx.fillStyle = done ? '#211532' : '#d2bdff';
       ctx.font = canvasFont(17, 750);
       ctx.fillText(done ? '✓' : '○', 61, y + 37);
-      ctx.fillStyle = '#1e2b23';
+      ctx.fillStyle = '#f6f5f9';
       ctx.font = canvasFont(24, 720);
       item.lines.forEach((line, i) => ctx.fillText(line, 92, y + 36 + i * 30));
-      ctx.fillStyle = '#526559';
+      ctx.fillStyle = '#aaa9b5';
       ctx.font = canvasFont(18);
       ctx.fillText(done ? '완료' : '진행 중', 92, y + 36 + item.lines.length * 30);
       if (item.hasPhoto) {
@@ -625,9 +616,11 @@
       const selected = control.dataset.group === 'all' ? null : Number(control.dataset.group);
       activeGroup = activeGroup === selected ? null : selected;
       view = 'board';
+      const scrollLeft = control.parentElement.scrollLeft;
       render();
-      const root = control.closest('.mobile-filters') ? document.querySelector('.mobile-filters') : $('sections');
-      root.querySelector('[data-group="' + (activeGroup ?? 'all') + '"]')?.focus({preventScroll: true});
+      const filters = document.querySelector('.area-filters');
+      filters.scrollLeft = scrollLeft;
+      filters.querySelector('[data-group="' + control.dataset.group + '"]')?.focus({preventScroll: true});
       return;
     }
 
@@ -688,7 +681,6 @@
   dialog.addEventListener('close', clearPreview);
 
   async function start() {
-    $('device-icon').innerHTML = icon('device');
     const exportButton = document.querySelector('[data-action="export"]');
     exportButton.innerHTML = icon('download') + '<span>이미지 저장</span>';
     exportButton.setAttribute('aria-label', '목표판 이미지 저장');

@@ -1,6 +1,6 @@
 'use strict';
 
-const cacheName = 'mandalart-mate-shell-v2';
+const cacheName = 'mandalart-mate-shell-v3';
 const shell = ['./', './index.html', './styles.css', './model.js', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 const shellUrls = new Set(shell.map(file => new URL(file, self.registration.scope).href));
 
