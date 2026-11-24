@@ -8,9 +8,11 @@
     "sync:android": "npm run build:mobile && cap sync android",
     "sync:ios": "npm run build:mobile && cap sync ios",
     "cap": "cap",
-    "build:android": "npm run sync:android && node scripts/build-android.mjs"
+    "build:android": "npm run sync:android && node scripts/build-android.mjs",
+    "build:mobile-api": "node scripts/build.mjs --mobile-api"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.1",
     "@capacitor/android": "8.6.2",
     "@capacitor/app": "8.1.2",
     "@capacitor/browser": "8.0.5",
@@ -18,13 +20,14 @@
     "@capacitor/core": "8.6.2",
     "@capacitor/filesystem": "8.1.5",
     "@capacitor/ios": "8.6.2",
-    "@capacitor/share": "8.0.3"
+    "@capacitor/share": "8.0.3",
+    "@supabase/supabase-js": "2.119.2"
   },
   "devDependencies": {
     "@capacitor/cli": "8.6.2",
     "esbuild": "0.28.2"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": {
     "node": ">=22"
   }

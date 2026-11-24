@@ -4,6 +4,7 @@ import {Browser} from '@capacitor/browser';
 import {Camera, CameraResultType, CameraSource} from '@capacitor/camera';
 import {Directory, Filesystem} from '@capacitor/filesystem';
 import {Share} from '@capacitor/share';
+import {createNativeAuth} from './auth.js';
 
 const hostedMates = 'https://mandalart-mate-goals.aridninja3.chatgpt.site/#mates';
 
@@ -49,6 +50,7 @@ if (Capacitor.isNativePlatform()) {
   globalThis.MandalartNative = Object.freeze({
     choosePhoto,
     shareImage,
+    auth: createNativeAuth(MANDALART_AUTH_CONFIG),
     openMates: () => Browser.open({url: hostedMates}),
     onBack: callback => {
       if (Capacitor.getPlatform() === 'android') App.addListener('backButton', callback);

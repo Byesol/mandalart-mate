@@ -16,7 +16,7 @@ function json(body, status = 200) {
 
 async function readJson(request, limit = 40_000) {
   if (!request.headers.get('content-type')?.startsWith('application/json') ||
-      ['cross-site', 'same-site'].includes(request.headers.get('sec-fetch-site'))) {
+      (!mobileApi && ['cross-site', 'same-site'].includes(request.headers.get('sec-fetch-site')))) {
     throw new ApiError(415, '지원하는 요청 형식이 아니에요.');
   }
   if (!request.body || Number(request.headers.get('content-length')) > limit) {
@@ -180,8 +180,51 @@ async function updateGoal(db, user, data) {
     new Date().toISOString(), user, goal.id).run();
 }
 
+const nativeOrigins = new Set(['capacitor://localhost', 'https://localhost']);
+
+async function mobileUser(request, env) {
+  const auth = request.headers.get('authorization') ?? '';
+  if (auth.length > 8192 || !/^Bearer [A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]+$/.test(auth)) {
+    throw new ApiError(401, '메이트를 보려면 로그인해 주세요.');
+  }
+  const base = env.SUPABASE_URL;
+  const key = env.SUPABASE_PUBLISHABLE_KEY;
+  let config;
+  try { config = new URL(base); } catch { throw new ApiError(503, '로그인 서버 설정이 필요해요.'); }
+  if (config.protocol !== 'https:' || config.origin !== base || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(key ?? '')) {
+    throw new ApiError(503, '로그인 서버 설정이 필요해요.');
+  }
+  let response;
+  try {
+    response = await fetch(config.origin + '/auth/v1/user', {
+      headers: {Authorization: auth, apikey: key},
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch {
+    throw new ApiError(503, '로그인 서버에 연결할 수 없어요.');
+  }
+  if (response.status === 400 || response.status === 401 || response.status === 403) {
+    throw new ApiError(401, '다시 로그인해 주세요.');
+  }
+  if (!response.ok) throw new ApiError(503, '로그인 서버에 연결할 수 없어요.');
+  const profile = await response.json().catch(() => null);
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(profile?.id ?? '')) {
+    throw new ApiError(401, '로그인 계정을 확인할 수 없어요.');
+  }
+  return 'mobile:' + profile.id.toLowerCase();
+}
+
+function crossOrigin(response, origin) {
+  if (!origin) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Vary', 'Origin');
+  return new Response(response.body, {status: response.status, headers});
+}
+
 async function matesApi(request, env, url) {
-  const user = request.headers.get('oai-authenticated-user-id');
+  const user = mobileApi ? await mobileUser(request, env) : request.headers.get('oai-authenticated-user-id');
   if (!user) throw new ApiError(401, '메이트 탭을 이용하려면 로그인해 주세요.');
   if (!env.DB || !env.BUCKET) throw new ApiError(503, '메이트 서버를 준비하고 있어요.');
   const db = env.DB;
@@ -248,12 +291,22 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/mates/')) {
+      const origin = mobileApi ? request.headers.get('origin') : null;
+      if (origin && !nativeOrigins.has(origin)) return json({error: '지원하는 앱에서 열어 주세요.'}, 403);
+      if (mobileApi && request.method === 'OPTIONS') {
+        if (!origin) return json({error: '지원하는 앱에서 열어 주세요.'}, 403);
+        return crossOrigin(new Response(null, {status: 204, headers: {
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Max-Age': '600'
+        }}), origin);
+      }
       try {
-        return await matesApi(request, env, url);
+        return crossOrigin(await matesApi(request, env, url), origin);
       } catch (error) {
-        if (error instanceof ApiError) return json({error: error.message}, error.status);
+        if (error instanceof ApiError) return crossOrigin(json({error: error.message}, error.status), origin);
         console.error('Mates API:', error.message);
-        return json({error: '메이트 기능을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'}, 500);
+        return crossOrigin(json({error: '메이트 기능을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'}, 500), origin);
       }
     }
     const path = url.pathname === '/' ? '/index.html' : url.pathname;

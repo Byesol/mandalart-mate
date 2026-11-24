@@ -33,7 +33,7 @@
     ['completed', 'checkCircle', '완료 기록']
   ];
 
-  let board = model.createBoard(true);
+  let board = model.createBoard();
   let view = 'board';
   let activeGroup = null;
   let homeMate = '';
@@ -137,7 +137,7 @@
   }
 
   function areaIcon(index) {
-    return '<span class="area-icon">' + icon(board.sample ? areaIcons[index] : 'grid') + '</span>';
+    return '<span class="area-icon">' + icon(areaIcons[index]) + '</span>';
   }
 
   function areaProgress(group) {
@@ -158,10 +158,9 @@
         '<span class="area-card-head">' + areaIcon(index) + '<span class="area-copy"><strong>' + escape(groupLabel(index)) +
         '</strong><small>' + progress.label + '</small></span></span>' + progress.meter + '</button>';
     }).join('');
-    const sample = board.sample ? '<button type="button" class="text-button sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
     return '<section class="areas-page" aria-labelledby="areas-title"><div class="page-heading">' +
       '<div><h1 id="areas-title">목표 영역</h1><p>실행 목표를 관리할 영역을 고르세요.</p></div></div>' +
-      '<div class="area-cards-heading"><span>8개 영역</span>' + sample + '</div>' +
+      '<div class="area-cards-heading"><span>8개 영역</span></div>' +
       '<div class="area-grid">' + cards + '</div></section>';
   }
 
@@ -215,7 +214,7 @@
       return '<button class="home-avatar-button" type="button" data-home-mate="' + escape(mate.code) +
         '" aria-pressed="' + (homeMate === mate.code) + '"><span class="home-avatar" style="--avatar-tone:' +
         tones[(index + 1) % tones.length] + '">' + escape(initial) + '</span><span class="home-avatar-name">' +
-        escape(mate.name) + '</span>' + (mate.sample ? '<small>예시</small>' : '') + '</button>';
+        escape(mate.name) + '</span></button>';
     }).join('');
     return '<div class="home-avatars"><button class="home-avatar-button" type="button" data-view="board" aria-pressed="' +
       !homeMate + '"><span class="home-avatar home-self">' + icon('grid') + '</span><span class="home-avatar-name">내 목표판</span></button>' +
@@ -243,20 +242,22 @@
         '<button type="button" class="button secondary" data-action="refresh-mate">다시 불러오기</button></div>';
     }
     const known = window.Mates.homeMembers().find(mate => mate.code === homeMate);
-    const preview = matePreview ?? window.Mates.sampleBoard(homeMate);
+    const preview = matePreview;
     const name = preview?.name ?? known?.name ?? '메이트';
     return '<div class="page-heading friend-heading"><div><h1>' + escape(name) + '님의 만다라트</h1><p>' +
-      (preview?.sample ? '예시 목표판' : preview ? '나에게 공개한 목표 ' + preview.posts.length + '개' : '목표를 불러오는 중이에요.') +
+      (preview ? '나에게 공개한 목표 ' + preview.posts.length + '개' : '목표를 불러오는 중이에요.') +
       '</p></div></div>' + (preview ? renderGrid(toMateBoard(preview), true) : '');
   }
 
   async function refreshHome() {
     const request = ++homeRequest;
     const key = homeMate;
+    if (!board.onboardingComplete) return;
     window.Mates.refreshHome().then(() => {
-      if (view === 'board' && request === homeRequest) $('home-mates').innerHTML = homeRail();
+      const home = $('home-mates');
+      if (home && view === 'board' && request === homeRequest) home.innerHTML = homeRail();
     });
-    if (!key || window.Mates.sampleBoard(key)) return;
+    if (!key) return;
     try {
       const next = await window.Mates.boardFor(key);
       if (request !== homeRequest || view !== 'board') return;
@@ -271,7 +272,7 @@
   }
 
   function openMateGoal(id) {
-    const preview = matePreview ?? window.Mates.sampleBoard(homeMate);
+    const preview = matePreview;
     const post = preview?.posts.find(item => item.id === id);
     if (!post) return;
     const state = post.doneAt ? '완료' : '진행 중';
@@ -330,7 +331,54 @@
       (lists || '<section class="panel"><p class="empty-note">아직 완료한 목표가 없어요.</p></section>');
   }
 
+  function renderOnboarding() {
+    const area = Boolean(board.core.text);
+    return '<section class="onboarding-page" aria-labelledby="onboarding-title">' +
+      '<div class="onboarding-mark">' + icon(area ? 'grid' : 'target') + '</div>' +
+      '<p class="onboarding-step">시작하기 · ' + (area ? '2' : '1') + ' / 2</p>' +
+      '<h1 id="onboarding-title">' + (area ? '첫 목표 영역을 정해요' : '가장 이루고 싶은 목표는?') + '</h1>' +
+      '<p class="onboarding-description">' + (area ? '중심 목표를 이루는 데 필요한 영역 하나부터 시작해요.' : '만다라트 한가운데에 놓을 목표를 한 줄로 적어 보세요.') + '</p>' +
+      '<form id="onboarding-form"><label class="field">' + (area ? '영역 이름' : '중심 목표') +
+      '<input name="goal" maxlength="48" required placeholder="' + (area ? '예: 건강' : '예: 균형 잡힌 한 해 보내기') + '"></label>' +
+      (area ? '<div class="onboarding-suggestions" aria-label="영역 이름 추천">' +
+        ['건강', '커리어', '관계'].map(name => '<button type="button" class="button secondary" data-onboarding-name="' + name + '">' + name + '</button>').join('') + '</div>' : '') +
+      '<p class="form-error" id="onboarding-error" role="alert"></p>' +
+      '<button type="submit" class="button primary">' + (area ? '목표판 만들기' : '다음') + '</button>' +
+      '<button type="button" class="text-button" data-action="skip-onboarding">건너뛰기</button></form></section>';
+  }
+
+  async function saveOnboarding(value = null) {
+    if (savePending || board.onboardingComplete) return;
+    savePending = true;
+    try {
+      const area = Boolean(board.core.text);
+      await update(next => {
+        if (value === null) next.onboardingComplete = true;
+        else if (!area) next.core.text = value;
+        else {
+          next.goals[0].main.text = value;
+          next.onboardingComplete = true;
+        }
+      });
+      if (board.onboardingComplete) switchView('board');
+      else {
+        render();
+        $('onboarding-title').setAttribute('tabindex', '-1');
+        $('onboarding-title').focus({preventScroll: true});
+      }
+    } catch {
+      $('onboarding-error').textContent = '목표를 저장하지 못했어요. 다시 시도해 주세요.';
+    } finally {
+      savePending = false;
+    }
+  }
+
   function render() {
+    document.body.classList.toggle('show-onboarding', !board.onboardingComplete);
+    if (!board.onboardingComplete) {
+      $('main-view').innerHTML = renderOnboarding();
+      return;
+    }
     const stats = model.progress(board);
     const nav = navMarkup();
     document.querySelector('[data-action="images"]').hidden = view === 'board' && !!homeMate;
@@ -787,7 +835,7 @@
   function readScreen() {
     const fragment = location.hash;
     const area = /^#area-([1-8])$/.exec(fragment);
-    const mate = /^#mate-([A-F0-9]{14}|demo-jiu|demo-seoyeon)$/.exec(fragment);
+    const mate = /^#mate-([A-F0-9]{14})$/.exec(fragment);
     const code = mate?.[1] ?? '';
     if (code !== homeMate) {
       matePreview = null;
@@ -804,7 +852,7 @@
     render();
     window.scrollTo(0, 0);
     $('main').focus({preventScroll: true});
-    if (view === 'mates') window.Mates.open();
+    if (view === 'mates' && board.onboardingComplete) window.Mates.open();
     if (view === 'board') refreshHome();
   }
 
@@ -862,7 +910,23 @@
     }
   }
 
+  document.addEventListener('submit', event => {
+    if (event.target.id !== 'onboarding-form') return;
+    event.preventDefault();
+    const field = event.target.elements.goal;
+    const title = field.value.trim();
+    if (title) void saveOnboarding(title);
+    else field.focus();
+  });
+
   document.addEventListener('click', async event => {
+    const suggestion = event.target.closest('[data-onboarding-name]');
+    if (suggestion) {
+      const field = $('onboarding-form').elements.goal;
+      field.value = suggestion.dataset.onboardingName;
+      field.focus();
+      return;
+    }
     const control = event.target.closest('[data-action], [data-view], [data-edit], [data-open-area], [data-complete], [data-photo], [data-add-to], [data-home-mate], [data-mate-goal]');
     if (!control || loading || savePending) return;
     if (control.dataset.view) {
@@ -901,6 +965,9 @@
     }
 
     switch (control.dataset.action) {
+      case 'skip-onboarding':
+        await saveOnboarding();
+        break;
       case 'close':
         closeDialog();
         break;
@@ -915,16 +982,6 @@
         mateError = '';
         $('home-board').innerHTML = homePanel();
         refreshHome();
-        break;
-      case 'blank':
-        confirmChange('빈 목표판에서 시작할까요?', '현재 목표, 완료 기록, 인증 사진을 모두 지우고 새로 시작해요.', async () => {
-          const empty = model.createBoard();
-          await persist(empty);
-          const previous = board;
-          board = empty;
-          window.Mates.changed(previous, board);
-          activeGroup = null;
-        }, '빈 목표판을 만들었어요.', '새로 시작');
         break;
       case 'share':
         openShare();
@@ -987,7 +1044,7 @@
       const saved = await loadBoard();
       if (saved?.version === 1) {
         board = saved;
-        if (model.seedSamplePhotos(board)) await persist(board);
+        if (model.migrateSavedBoard(board)) await persist(board);
       }
     } catch {
       toast('저장한 목표를 불러오지 못했어요.');
@@ -997,11 +1054,18 @@
       history.replaceState(history.state, '', '#mates');
     }
     loading = false;
-    window.Mates.configure({board: () => board, label: entryLabel, icon, escape, dialog: showDialog,
-      close: closeDialog, toast, refresh: render});
+    window.Mates.configure({
+      board: () => board, label: entryLabel, icon, escape, dialog: showDialog, close: closeDialog, toast, refresh: render,
+      refreshHome: () => { if (view === 'board') void refreshHome(); },
+      accountChanged: () => {
+        if (dialog.open && !savePending) closeDialog();
+        if (homeMate) switchView('board');
+        else render();
+      }
+    });
     readScreen();
     render();
-    if (view === 'mates') window.Mates.open();
+    if (view === 'mates' && board.onboardingComplete) window.Mates.open();
     if (view === 'board') refreshHome();
     native?.onBack(({canGoBack}) => {
       if (savePending) return;

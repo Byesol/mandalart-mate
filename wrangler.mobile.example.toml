@@ -1,0 +1,17 @@
+name = "mandalart-mate-mobile-api"
+main = "dist-mobile-api/index.js"
+compatibility_date = "2026-11-24"
+
+[vars]
+SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_REPLACE_ME"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mandalart-mate-mobile"
+database_id = "REPLACE_WITH_DATABASE_ID"
+migrations_dir = "drizzle"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "mandalart-mate-mobile"

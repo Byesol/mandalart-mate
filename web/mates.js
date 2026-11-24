@@ -2,6 +2,10 @@
   'use strict';
 
   const native = window.MandalartNative;
+  const auth = native?.auth;
+  let account = auth?.state().user ?? null;
+  const protectedImages = new Map();
+  let photosObserver;
   let app;
   let data;
   let error = '';
@@ -13,29 +17,6 @@
   const reactions = {heart: '💛', clap: '👏', fire: '🔥'};
   const reactionLabels = {heart: '마음', clap: '박수', fire: '응원'};
   const date = new Intl.DateTimeFormat('ko-KR', {month: 'long', day: 'numeric'});
-  const sampleMates = [
-    {code: 'demo-jiu', name: '지우', sample: true, tint: 0, posts: [
-      {id: 'core', title: '작은 습관 만들기'},
-      {id: '0:main', title: '움직이기'},
-      {id: '0:2', title: '아침 러닝', photo: './demo-run.jpg', doneAt: '2026-11-22T00:20:00Z'},
-      {id: '0:4', title: '공원 산책', photo: './demo-walk.jpg'},
-      {id: '1:main', title: '배우기'},
-      {id: '1:0', title: '책 10쪽 읽기', photo: './demo-read.jpg', doneAt: '2026-11-23T00:30:00Z'},
-      {id: '3:main', title: '쉬어가기'},
-      {id: '3:3', title: '주말 산책'}
-    ]},
-    {code: 'demo-seoyeon', name: '서연', sample: true, tint: 3, posts: [
-      {id: 'core', title: '나에게 다정한 일상'},
-      {id: '1:main', title: '좋아하는 책'},
-      {id: '1:1', title: '커피와 독서', photo: './demo-read.jpg'},
-      {id: '3:main', title: '마음 돌보기'},
-      {id: '3:0', title: '햇볕 쬐기', photo: './demo-walk.jpg', doneAt: '2026-11-23T03:00:00Z'},
-      {id: '6:main', title: '집에서 요리'},
-      {id: '6:4', title: '제철 과일', photo: './demo-fruit.jpg', doneAt: '2026-11-22T03:00:00Z'}
-    ]}
-  ];
-
-
   function active() {
     return Boolean(document.querySelector('.mates-page'));
   }
@@ -44,11 +25,24 @@
     if (active()) app.refresh();
   }
 
-  async function request(route, payload) {
+  async function fetchApi(route, init, owner = account) {
+    return auth ? auth.fetchMates('api/mates/' + route, init, owner) : fetch('./api/mates/' + route, init);
+  }
+
+  const canConnect = () => !auth || !!account;
+  const queueKey = owner => auth ? syncKey + '-' + owner : syncKey;
+
+  function readPending(owner = account) {
+    try { return new Set(JSON.parse(localStorage.getItem(queueKey(owner)) ?? '[]')); }
+    catch { return new Set(); }
+  }
+
+  async function request(route, payload, owner = account) {
+    if (auth && owner !== account) throw new Error('로그인 계정이 변경되었어요.');
     const init = payload === undefined ? undefined : {
       method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
     };
-    const response = await fetch('./api/mates/' + route, init);
+    const response = await fetchApi(route, init, owner);
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       const failure = new Error(result.error ?? '메이트 서버에 연결하지 못했어요.');
@@ -60,60 +54,89 @@
 
   async function load(refresh = true) {
     if (loading) return loading;
-    loading = request('state').then(state => {
+    const owner = account;
+    const operation = request('state').then(state => {
+      if (account !== owner) throw new Error('로그인 계정이 변경되었어요.');
       data = state;
       error = '';
       if (filter && !state.connections.some(friend => friend.code === filter && friend.status === 'accepted')) filter = '';
       return state;
     }).catch(reason => {
-      error = reason.message;
+      if (account === owner) error = reason.message;
       throw reason;
     }).finally(() => {
-      loading = undefined;
-      if (refresh) repaint();
+      if (loading === operation) loading = undefined;
+      if (refresh && account === owner) repaint();
     });
-    return loading;
+    loading = operation;
+    return operation;
   }
 
   function homeMembers() {
     const friends = data?.connections.filter(item => item.status === 'accepted') ?? [];
-    return [...friends, ...sampleMates];
+    return friends;
   }
 
   function refreshHome() {
-    return native ? Promise.resolve() : load(false).catch(() => {});
-  }
-
-  function sampleBoard(code) {
-    return sampleMates.find(mate => mate.code === code);
+    return canConnect() ? load(false).catch(() => {}) : Promise.resolve();
   }
 
   async function boardFor(code) {
-    const sample = sampleBoard(code);
-    if (sample) return sample;
+    const owner = account;
     const board = await request('board?code=' + encodeURIComponent(code));
-    return {...board, code, posts: board.posts.map(post => ({
-      ...post,
-      photo: post.hasPhoto ? photoUrl(code, post) : null
-    }))};
+    const posts = [];
+    for (let index = 0; index < board.posts.length; index += 6) {
+      const batch = board.posts.slice(index, index + 6);
+      posts.push(...await Promise.all(batch.map(async post => ({
+        ...post,
+        photo: post.hasPhoto ? await imageUrl(code, post).catch(() => null) : null
+      }))));
+    }
+    if (owner !== account) throw new Error('로그인 계정이 변경되었어요.');
+    return {...board, code, posts};
   }
 
-  function photoUrl(code, post) {
-    return './api/mates/photo?code=' + encodeURIComponent(code) + '&id=' + encodeURIComponent(post.id) +
+  function photoRoute(code, post) {
+    return 'photo?code=' + encodeURIComponent(code) + '&id=' + encodeURIComponent(post.id) +
       '&v=' + encodeURIComponent(post.updatedAt);
   }
 
-  async function photoData(source) {
-    if (!/^\.\/demo-(run|read|walk|fruit)\.jpg$/.test(source)) return source;
-    const response = await fetch(source);
-    if (!response.ok) throw new Error('예시 사진을 불러오지 못했어요.');
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('사진을 읽지 못했어요.'));
-      reader.readAsDataURL(blob);
+  async function imageUrl(code, post) {
+    const route = photoRoute(code, post);
+    if (!auth) return './api/mates/' + route;
+    if (protectedImages.has(route)) return protectedImages.get(route);
+    const owner = account;
+    const task = (async () => {
+      const response = await fetchApi(route);
+      if (!response.ok || response.headers.get('Content-Type')?.split(';')[0] !== 'image/jpeg') {
+        throw new Error('사진을 불러오지 못했어요.');
+      }
+      const blob = await response.blob();
+      if (owner !== account) throw new Error('로그인 계정이 변경되었어요.');
+      return URL.createObjectURL(blob);
+    })();
+    protectedImages.set(route, task);
+    task.catch(() => {
+      if (protectedImages.get(route) === task) protectedImages.delete(route);
     });
+    return task;
+  }
+
+  function hydratePhotos() {
+    if (!auth || !data) return;
+    photosObserver?.disconnect();
+    photosObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const img = entry.target;
+        photosObserver.unobserve(img);
+        const post = data?.posts.find(item => item.code + ':' + item.id === img.dataset.protectedMatePhoto);
+        if (post) imageUrl(post.code, post).then(url => {
+          if (img.isConnected) img.src = url;
+        }).catch(() => { img.hidden = true; });
+      }
+    }, {rootMargin: '180px'});
+    document.querySelectorAll('img[data-protected-mate-photo]').forEach(img => photosObserver.observe(img));
   }
 
   function avatar(name, index = 4) {
@@ -128,8 +151,9 @@
 
   function feedCard(post) {
     const color = window.Mandalart.palettes[post.tint][0];
-    const source = photoUrl(post.code, post);
-    const picture = post.hasPhoto ? '<img class="mate-photo" src="' + source + '" alt="' + app.escape(post.title) + ' 사진" loading="lazy">' : '';
+    const source = auth ? 'data-protected-mate-photo="' + app.escape(post.code + ':' + post.id) + '"' :
+      'src="' + app.escape('./api/mates/' + photoRoute(post.code, post)) + '"';
+    const picture = post.hasPhoto ? '<img class="mate-photo" ' + source + ' alt="' + app.escape(post.title) + ' 사진" loading="lazy">' : '';
     const reactionButtons = Object.entries(reactions).map(([reaction, symbol]) =>
       '<button type="button" class="mate-reaction" data-mates-action="cheer" data-mate-code="' + post.code +
       '" data-goal-id="' + post.id + '" data-reaction="' + reaction + '" aria-pressed="' + (post.cheer === reaction) +
@@ -142,13 +166,11 @@
   }
 
   function render() {
-    if (native) {
-      return '<section class="mates-page"><div class="page-heading"><h1>메이트</h1></div><div class="panel">' +
-        '<p class="empty-note">메이트 연결과 친구 소식은 웹에서 열 수 있어요.</p>' +
-        button('hosted', '웹에서 메이트 열기') + '</div></section>';
-    }
+    if (auth && !account) return renderLogin(auth.state());
+    if (auth) queueMicrotask(hydratePhotos);
     const heading = '<div class="mate-heading"><h1>메이트</h1>' +
-      (data ? button('invite', app.icon('plus') + '메이트 추가') : '') + '</div>';
+      '<div class="mate-heading-actions">' + (auth ? button('logout', '로그아웃') : '') +
+      (data ? button('invite', app.icon('plus') + '메이트 추가') : '') + '</div></div>';
     if (!data) {
       const prompt = error ? '<div class="panel"><p class="empty-note">' + app.escape(error) + '</p>' +
         button('retry', '다시 불러오기') + '</div>' : '<p class="panel empty-note" aria-live="polite">메이트를 불러오는 중이에요.</p>';
@@ -181,13 +203,30 @@
           '메이트를 추가하면 서로 고른 목표와 사진을 보고 응원할 수 있어요.') + '</p></div>') + '</section>';
   }
 
+  function renderLogin(state) {
+    const disabled = !state.configured || !state.ready || state.pending ? ' disabled' : '';
+    const providers = [['google', 'Google로 계속하기'], ['kakao', '카카오로 계속하기'], ['apple', 'Apple로 로그인']];
+    const choices = providers.map(([provider, label]) =>
+      '<button type="button" class="login-provider login-provider-' + provider +
+      '" data-mates-action="login" data-provider="' + provider + '"' + disabled + '>' + label + '</button>'
+    ).join('');
+    const message = state.error || (!state.ready ? '로그인 상태를 확인하고 있어요.' : state.pending ?
+      '로그인 화면이 열리고 있어요.' : !state.configured ? '로그인 서버 연결을 준비 중이에요.' : '');
+    return '<section class="mates-page"><div class="page-heading"><h1>메이트</h1></div>' +
+      '<div class="panel login-panel"><h2>로그인하고 메이트와 함께해요</h2>' +
+      '<p>친구를 연결하고 서로 공개한 목표에 응원할 수 있어요.</p>' +
+      '<div class="login-providers">' + choices + '</div>' +
+      '<p class="dialog-copy" aria-live="polite">' + app.escape(message) + '</p>' +
+      (!state.configured ? button('hosted', '기존 웹 메이트 열기') : '') + '</div></section>';
+  }
+
   function inviteDialog(prefill = '') {
     const invite = new URL(location.pathname, location.origin);
     invite.searchParams.set('mate', data.profile.code);
     invite.hash = 'mates';
-    app.dialog('메이트 추가', '친구에게 내 링크를 보내거나 받은 코드를 입력하세요.',
+    app.dialog('메이트 추가', auth ? '친구에게 내 코드를 보내거나 받은 코드를 입력하세요.' : '친구에게 내 링크를 보내거나 받은 코드를 입력하세요.',
       '<div class="mate-code-box"><span><small>내 코드</small><strong>' + data.profile.code + '</strong></span>' +
-      button('copy', '초대 링크 복사') + '</div><form id="mate-invite-form">' +
+      button('copy', auth ? '내 코드 복사' : '초대 링크 복사') + '</div><form id="mate-invite-form">' +
       '<label class="field">친구 코드<input name="code" maxlength="30" autocapitalize="characters" spellcheck="false" value="' +
       app.escape(prefill) + '" required></label><p class="form-error" id="mate-dialog-error" role="alert"></p>' +
       '<button type="submit" class="button primary mate-wide">연결 요청 보내기</button></form>');
@@ -205,7 +244,7 @@
         await load();
       });
     });
-    form.parentElement.querySelector('[data-mates-action="copy"]').dataset.invite = invite.href;
+    form.parentElement.querySelector('[data-mates-action="copy"]').dataset.invite = auth ? data.profile.code : invite.href;
   }
 
   function nameDialog() {
@@ -269,7 +308,7 @@
       submit(form, async () => {
         if (allowPhoto) {
           for (const entry of posts) {
-            if (entry.goal.photo) await request('photo', {id: entry.id, data: await photoData(entry.goal.photo)});
+            if (entry.goal.photo) await request('photo', {id: entry.id, data: entry.goal.photo});
           }
         }
         await request('sharing', {code, goals: posts.map(entry => ({...snapshot(entry, allowPhoto), allowPhoto}))});
@@ -290,48 +329,51 @@
     return {id: entry.id, title: title(entry.goal), area, tint, doneAt: entry.goal.doneAt, hasPhoto: allowPhoto && !!entry.goal.photo};
   }
 
-  function persistPending() {
-    try { localStorage.setItem(syncKey, JSON.stringify([...pending])); } catch {}
+  function persistPending(owner = account, queue = pending) {
+    try { localStorage.setItem(queueKey(owner), JSON.stringify([...queue])); } catch {}
   }
 
   async function flush() {
-    if (native || syncing || !pending.size) return;
+    if (!canConnect() || syncing || !pending.size) return;
     syncing = true;
+    const owner = account;
+    const queue = pending;
     try {
       const current = data ?? await load(false);
       const sharing = new Map(current.selected.map(item => [item.id, false]));
       for (const item of current.selected) if (item.allowPhoto) sharing.set(item.id, true);
-      while (pending.size) {
-        const id = pending.values().next().value;
-        pending.delete(id);
+      while (owner === account && queue.size) {
+        const id = queue.values().next().value;
+        queue.delete(id);
         try {
           if (sharing.has(id)) {
             const board = app.board();
             const entry = window.Mandalart.locate(board, id);
             if (window.Mandalart.filled(entry.goal)) {
               const allowPhoto = sharing.get(id);
-              if (allowPhoto && entry.goal.photo) await request('photo', {id, data: await photoData(entry.goal.photo)});
-              await request('goal', {goal: snapshot(entry, allowPhoto, board)});
+              if (allowPhoto && entry.goal.photo) await request('photo', {id, data: entry.goal.photo}, owner);
+              await request('goal', {goal: snapshot(entry, allowPhoto, board)}, owner);
             } else {
-              await request('goal', {id});
+              await request('goal', {id}, owner);
             }
           }
         } catch (reason) {
-          pending.add(id);
+          queue.add(id);
           throw reason;
         } finally {
-          persistPending();
+          persistPending(owner, queue);
         }
       }
     } catch {
       // The same IDs are retried when the connection returns or the app next starts.
     } finally {
       syncing = false;
+      if (owner !== account) void flush();
     }
   }
 
   function changed(previous, next) {
-    if (native) return;
+    if (!canConnect()) return;
     const before = new Map(window.Mandalart.populatedGoals(previous).map(entry => [entry.id, entry]));
     const after = new Map(window.Mandalart.populatedGoals(next).map(entry => [entry.id, entry]));
     for (const id of new Set([...before.keys(), ...after.keys()])) {
@@ -345,7 +387,7 @@
   }
 
   async function open() {
-    if (native) return;
+    if (!canConnect()) return;
     try {
       await load();
       const invite = new URL(location.href).searchParams.get('mate');
@@ -362,6 +404,16 @@
       return;
     }
     const action = control.dataset.matesAction;
+    if (auth && action === 'login') {
+      await auth.signIn(control.dataset.provider);
+      return;
+    }
+    if (auth && action === 'logout') {
+      control.disabled = true;
+      try { await auth.signOut(); } catch (reason) { app.toast(reason.message); }
+      finally { control.disabled = false; }
+      return;
+    }
     if (action === 'hosted' && native) {
       try { await native.openMates(); }
       catch { app.toast('웹 메이트 화면을 열지 못했어요.'); }
@@ -381,7 +433,7 @@
     if (action === 'copy') {
       try {
         await navigator.clipboard.writeText(control.dataset.invite);
-        app.toast('메이트 초대 링크를 복사했어요.');
+        app.toast(auth ? '메이트 코드를 복사했어요.' : '메이트 초대 링크를 복사했어요.');
       } catch {
         const field = document.createElement('input');
         field.value = control.dataset.invite;
@@ -420,14 +472,30 @@
 
   function configure(callbacks) {
     app = callbacks;
-    try {
-      pending = new Set(JSON.parse(localStorage.getItem(syncKey) ?? '[]'));
-    } catch {}
+    pending = readPending();
+    auth?.subscribe(next => {
+      if (next.user !== account) {
+        account = next.user;
+        data = undefined;
+        error = '';
+        filter = '';
+        loading = undefined;
+        pending = readPending();
+        photosObserver?.disconnect();
+        for (const photo of protectedImages.values()) photo.then(url => URL.revokeObjectURL(url)).catch(() => {});
+        protectedImages.clear();
+        app.accountChanged();
+        if (active()) void open();
+        else app.refreshHome();
+      } else {
+        repaint();
+      }
+    });
     document.addEventListener('click', onClick);
     window.addEventListener('online', flush);
     window.addEventListener('focus', () => { if (active()) open(); });
     flush();
   }
 
-  window.Mates = {configure, changed, render, open, homeMembers, refreshHome, boardFor, sampleBoard};
+  window.Mates = {configure, changed, render, open, homeMembers, refreshHome, boardFor};
 })();

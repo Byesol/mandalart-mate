@@ -14,7 +14,7 @@
   ];
   const groups = [0, 1, 2, 3, 5, 6, 7, 8];
   const positions = [0, 1, 2, 3, 5, 6, 7, 8];
-  const examples = [
+  const legacyTitles = [
     ['건강', '아침 스트레칭', '물 1.5L', '주 3회 운동', '점심 산책', '7시간 수면', '건강 검진'],
     ['성장', '월 2권 독서', '영어 10분', '강의 듣기', '독서 기록', '글 한 편 쓰기', '스터디 참여'],
     ['일과 커리어', '주간 회고', '업무 정리', '포트폴리오', '집중 시간', '멘토 찾기', '프로젝트 기록'],
@@ -24,44 +24,58 @@
     ['취미', '사진 한 장', '새 요리', '전시 보기', '음악 듣기', '주말 산책', '그림 그리기'],
     ['여행', '여행지 고르기', '경비 모으기', '동네 탐방', '주말 기차여행', '지도에 표시', '기록 남기기']
   ];
-  const exampleDone = new Set([0, 4, 8, 11, 16, 24, 26, 32, 36, 41, 48, 56, 57]);
+  const legacyCompleted = new Set([0, 4, 8, 11, 16, 24, 26, 32, 36, 41, 48, 56, 57]);
 
   function filled(goal) { return Boolean(goal.text || goal.photo); }
   function goalTitle(goal) { return goal.text || (goal.photo ? '사진 기록' : ''); }
 
   function emptyGoal(text = '') { return {text, doneAt: null, photo: null}; }
 
-  function createBoard(sample = false) {
-    const board = {
+  function createBoard() {
+    return {
       version: 1,
-      sample,
-      core: emptyGoal(sample ? '올해 더 나은 나' : ''),
-      goals: groups.map((block, groupIndex) => ({
+      onboardingComplete: false,
+      core: emptyGoal(),
+      goals: groups.map(block => ({
         block,
-        main: emptyGoal(sample ? examples[groupIndex][0] : ''),
-        actions: positions.map((position, index) => {
-          const goal = emptyGoal(sample ? examples[groupIndex][index + 1] ?? '' : '');
-          const sequence = groupIndex * 8 + index;
-          if (sample && goal.text && exampleDone.has(sequence)) {
-            goal.doneAt = new Date(Date.UTC(2026, 0, 4, 0, sequence)).toISOString();
-          }
-          return goal;
-        })
+        main: emptyGoal(),
+        actions: positions.map(() => emptyGoal())
       }))
     };
-    seedSamplePhotos(board);
-    return board;
   }
 
-  function seedSamplePhotos(board) {
-    if (!board.sample || board.samplePhotosSeeded) return false;
-    const fixtures = [[0, 2, 'run'], [1, 0, 'read'], [3, 3, 'walk'], [6, 1, 'fruit']];
-    for (const [group, slot, photo] of fixtures) {
-      const goal = board.goals[group].actions[slot];
-      if (goal.text === examples[group][slot + 1] && !goal.photo) goal.photo = './demo-' + photo + '.jpg';
+  function migrateSavedBoard(board) {
+    let changed = false;
+    if (board.sample) {
+      function clean(goal, title, completedAt = null) {
+        const fixturePhoto = /^\.\/demo-(run|read|walk|fruit)\.jpg$/.test(goal.photo ?? '');
+        if (goal.text === title && goal.doneAt === completedAt && (!goal.photo || fixturePhoto)) {
+          Object.assign(goal, emptyGoal());
+        } else if (fixturePhoto) {
+          goal.photo = null;
+        }
+      }
+
+      clean(board.core, '올해 더 나은 나');
+      board.goals.forEach((group, groupIndex) => {
+        clean(group.main, legacyTitles[groupIndex][0]);
+        group.actions.forEach((goal, index) => {
+          const sequence = groupIndex * 8 + index;
+          const completedAt = legacyCompleted.has(sequence) ? new Date(Date.UTC(2026, 0, 4, 0, sequence)).toISOString() : null;
+          clean(goal, legacyTitles[groupIndex][index + 1] ?? '', completedAt);
+        });
+      });
     }
-    board.samplePhotosSeeded = true;
-    return true;
+    if (Object.hasOwn(board, 'sample') || Object.hasOwn(board, 'samplePhotosSeeded')) {
+      delete board.sample;
+      delete board.samplePhotosSeeded;
+      changed = true;
+    }
+    if (typeof board.onboardingComplete !== 'boolean') {
+      board.onboardingComplete = populatedGoals(board).length > 0;
+      changed = true;
+    }
+    return changed;
   }
 
   function locate(board, id) {
@@ -111,7 +125,7 @@
     return index >= 0 ? groupIndex + ':' + index : null;
   }
 
-  const api = {palettes, groups, createBoard, seedSamplePhotos, filled, goalTitle, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
+  const api = {palettes, groups, createBoard, migrateSavedBoard, filled, goalTitle, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Mandalart = api;
 })(globalThis);

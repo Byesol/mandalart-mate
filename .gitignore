@@ -1,5 +1,9 @@
 /dist/
 /dist-mobile/
+/dist-mobile-api/
+/.wrangler/
+/wrangler.mobile.toml
+/.dev.vars
 /node_modules/
 /artifacts/
 *.jks

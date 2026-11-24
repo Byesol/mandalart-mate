@@ -1,0 +1,36 @@
+name: iPhone app build
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      MANDALART_SUPABASE_URL: ${{ vars.MANDALART_SUPABASE_URL }}
+      MANDALART_SUPABASE_PUBLISHABLE_KEY: ${{ vars.MANDALART_SUPABASE_PUBLISHABLE_KEY }}
+      MANDALART_MATES_API_URL: ${{ vars.MANDALART_MATES_API_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run sync:ios
+      - name: Compile for the iPhone simulator
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath artifacts/ios CODE_SIGNING_ALLOWED=NO build
+      - name: Package the simulator app
+        run: ditto -c -k --keepParent artifacts/ios/Build/Products/Debug-iphonesimulator/App.app artifacts/mandalart-mate-ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mandalart-mate-ios-simulator
+          path: artifacts/mandalart-mate-ios-simulator.zip
+          if-no-files-found: error
