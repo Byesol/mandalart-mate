@@ -2,8 +2,18 @@
 
 9×9 목표판, 영역별 실행 목표, 사진 기록을 제공하는 모바일 중심 서비스입니다.
 
-- [웹앱](https://mandalart-mate-goals.aridninja3.chatgpt.site/)
-- [Android 테스트 배포](https://github.com/Byesol/mandalart-mate/releases)
+## 설치 및 실행
+
+GitHub 설치 파일은 이 비공개 저장소에 접근할 수 있는 계정으로 다운로드할 수 있습니다.
+
+| 플랫폼 | 다운로드 및 열기 |
+|---|---|
+| **Android 기기** | [테스트 APK 다운로드](https://github.com/Byesol/mandalart-mate/releases/download/v0.2.0-alpha.1/mandalart-mate-debug.apk) · 다운로드한 APK를 Android 기기에서 열어 설치합니다. |
+| **iPhone 시뮬레이터** | [시뮬레이터 앱 다운로드](https://github.com/Byesol/mandalart-mate/releases/download/v0.2.0-alpha.1/mandalart-mate-ios-simulator.zip) · Mac에서 Xcode의 iOS Simulator를 켜고 압축을 푼 `App.app`을 시뮬레이터 창으로 드래그합니다. |
+| **iPhone 및 iPad** | [Safari에서 웹앱 열기](https://mandalart-mate-goals.aridninja3.chatgpt.site/) · 실기기용 TestFlight 링크는 Apple 서명과 배포 후 추가합니다. |
+| **웹** | [만다라트 메이트 열기](https://mandalart-mate-goals.aridninja3.chatgpt.site/) · 사이트 접근 권한이 필요합니다. |
+
+[테스트 릴리스 전체 보기](https://github.com/Byesol/mandalart-mate/releases) · [iPhone 시뮬레이터 빌드 기록](https://github.com/Byesol/mandalart-mate/actions/workflows/ios-verify.yml)
 
 ## 프로젝트 구조
 
@@ -23,7 +33,7 @@ npm ci
 npm run build
 ```
 
-## Android
+## Android 빌드
 
 JDK 21과 Android SDK 36으로 빌드합니다. Android Studio에 `android/`를 열면 SDK 경로를 설정할 수 있습니다.
 
@@ -35,7 +45,7 @@ npm run build:android
 - `artifacts/android/mandalart-mate-debug.apk`는 설치 테스트용 APK입니다.
 - `artifacts/android/mandalart-mate-unsigned.aab`는 서명 전의 배포용 번들입니다. Play Console에는 업로드 키로 서명한 번들을 제출합니다.
 
-## iPhone
+## iPhone 빌드
 
 macOS와 Xcode 26 이상이 필요합니다. Xcode에서 서명 팀을 선택한 뒤 실기기 테스트, Archive, TestFlight 업로드로 진행합니다.
 
@@ -52,10 +62,6 @@ Android 앱 ID와 iOS 번들 ID는 `io.github.byesol.mandalartmate`입니다.
 목표판과 사진은 앱에 저장되며 인터넷 연결 없이 열 수 있습니다. 사진 촬영·선택과 이미지 공유는 기기의 시스템 기능을 이용합니다.
 
 로그인 환경변수가 없는 프리뷰에서는 기존 비공개 웹앱에서 메이트 기능을 이용할 수 있습니다.
-
-## iPhone 빌드
-
-GitHub Actions의 [iPhone app build](https://github.com/Byesol/mandalart-mate/actions/workflows/ios-verify.yml)는 macOS에서 iOS 시뮬레이터 앱을 컴파일합니다. 실제 iPhone 설치에는 Apple Developer 팀 서명과 TestFlight 배포가 필요합니다.
 
 ## 앱 로그인 연결
 
