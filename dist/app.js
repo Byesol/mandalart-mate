@@ -187,7 +187,7 @@
       '<section class="panel board-panel" aria-labelledby="board-title"><div class="board-head"><div><h2 id="board-title">내 만다라트</h2>' +
       '<p>칸을 눌러 목표를 추가하거나 완료를 기록하세요.</p></div>' + filter + '</div>' +
       '<div class="mobile-filters" aria-label="목표 영역">' + sectionsMarkup(true) + '</div>' +
-      '<div class="board-scroll"><div class="board" aria-label="9×9 만다라트 목표판">' + blocks + '</div></div>' +
+      '<div class="board-scroll"><div class="board' + (activeGroup === null ? '' : ' group-focus') + '" aria-label="9×9 만다라트 목표판">' + blocks + '</div></div>' +
       '<div class="legend"><span><i style="--legend:#1d4734"></i>중심 목표</span><span><i style="--legend:#dce9d8"></i>영역 목표</span>' +
       '<span><i style="--legend:#f3f6ee"></i>실행 목표</span><span><i style="--legend:#6c9e68"></i>완료 표시</span></div></section>';
   }
