@@ -1,1 +1,8 @@
 /dist/
+/dist-mobile/
+/node_modules/
+/artifacts/
+*.jks
+*.keystore
+*.p12
+*.mobileprovision

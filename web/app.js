@@ -2,6 +2,7 @@
   'use strict';
 
   const model = window.Mandalart;
+  const native = window.MandalartNative;
   const $ = id => document.getElementById(id);
   const dialog = $('dialog');
   const icons = {
@@ -380,14 +381,18 @@
       '<form id="goal-form"><label class="field">목표 이름<input name="text" maxlength="48" placeholder="목표 또는 사진 제목" value="' +
       escape(goal.text) + '"></label>' +
       '<label class="check-line"><input name="done" type="checkbox"' + (goal.doneAt ? ' checked' : '') + '> 완료했어요</label>' +
-      '<div class="proof" id="proof"><label class="field">사진<input name="image" type="file" accept="image/*"></label>' +
+      '<div class="proof" id="proof">' + (native
+        ? '<button class="button secondary" type="button" id="native-photo">' + icon('image') + ' 카메라·앨범</button>'
+        : '<label class="field">사진<input name="image" type="file" accept="image/*"></label>') +
       '<div id="proof-preview"></div>' + actionButton('remove-photo', '사진 제거') +
       '<p class="dialog-copy">사진을 넣으면 목표판 칸에 바로 보여요.</p></div>' +
       '<p class="form-error" id="form-error" role="alert"></p>' +
       dialogActions((model.filled(goal) ? actionButton('delete-goal', '목표 삭제', 'secondary danger') : '') +
         actionButton('close', '취소') + '<button type="submit" class="button primary">저장</button>') + '</form>');
     const form = $('goal-form');
-    form.elements[focusPhoto ? 'image' : 'text'].focus({preventScroll: true});
+    const nativePhoto = $('native-photo');
+    const photoControl = nativePhoto ?? form.elements.image;
+    (focusPhoto ? photoControl : form.elements.text).focus({preventScroll: true});
     const remove = form.querySelector('[data-action="remove-photo"]');
     let photo = goal.photo;
     let photoTask = null;
@@ -399,13 +404,12 @@
     syncPhoto();
     remove.addEventListener('click', () => {
       photo = null;
-      form.elements.image.value = '';
+      if (form.elements.image) form.elements.image.value = '';
       photoTask = null;
       syncPhoto();
     });
-    form.elements.image.addEventListener('change', () => {
-      const file = form.elements.image.files[0];
-      if (!file) return;
+    function pickPhoto(file) {
+      if (!file || !form.isConnected) return;
       $('form-error').textContent = '';
       const task = compressPhoto(file);
       photoTask = task;
@@ -416,12 +420,23 @@
         }
       }).catch(() => {
         if (photoTask === task && form.isConnected) {
-          form.elements.image.value = '';
+          if (form.elements.image) form.elements.image.value = '';
           $('form-error').textContent = '사진을 열 수 없어요. JPG, PNG 또는 WebP 사진을 선택해 주세요.';
         }
       }).finally(() => {
         if (photoTask === task) photoTask = null;
       });
+    }
+    form.elements.image?.addEventListener('change', () => pickPhoto(form.elements.image.files[0]));
+    nativePhoto?.addEventListener('click', async () => {
+      nativePhoto.disabled = true;
+      try {
+        pickPhoto(await native.choosePhoto());
+      } catch (error) {
+        if (form.isConnected && !/cancel/i.test(error.message ?? '')) $('form-error').textContent = '사진을 가져오지 못했어요.';
+      } finally {
+        nativePhoto.disabled = false;
+      }
     });
     form.querySelector('[data-action="delete-goal"]')?.addEventListener('click', () => {
       confirmChange('이 목표를 지울까요?', '목표의 완료 기록과 인증 사진도 함께 삭제돼요.', async () => {
@@ -712,6 +727,7 @@
   }
 
   function canShareFile(file) {
+    if (native) return true;
     try {
       return Boolean(navigator.share && navigator.canShare?.({files: [file]}));
     } catch {
@@ -719,7 +735,8 @@
     }
   }
 
-  function download(blob, name) {
+  async function download(blob, name) {
+    if (native) return native.shareImage(blob, name);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -918,7 +935,8 @@
       case 'send':
         if (prepared) {
           try {
-            await navigator.share({files: [prepared.file]});
+            if (native) await native.shareImage(prepared.file, prepared.file.name);
+            else await navigator.share({files: [prepared.file]});
           } catch (error) {
             if (error.name !== 'AbortError' && $('form-error')) $('form-error').textContent = '공유하지 못했어요. 이미지를 저장해 보낼 수 있어요.';
           }
@@ -928,7 +946,13 @@
         copyShareText();
         break;
       case 'save-share-image':
-        if (prepared) download(prepared.file, prepared.file.name);
+        if (prepared) {
+          try {
+            await download(prepared.file, prepared.file.name);
+          } catch (error) {
+            if (!/cancel/i.test(error.message ?? '')) toast('이미지를 저장하지 못했어요.');
+          }
+        }
         break;
       case 'images':
         showDialog('이미지 저장', '', '<div class="image-actions">' +
@@ -937,9 +961,9 @@
       case 'export':
         try {
           const blob = await boardImage();
-          download(blob, '내-만다라트.png');
+          await download(blob, '내-만다라트.png');
           closeDialog();
-          toast('목표판 이미지 다운로드를 시작했어요.');
+          if (!native) toast('목표판 이미지 다운로드를 시작했어요.');
         } catch {
           toast('이미지를 만들지 못했어요. 다시 시도해 주세요.');
         }
@@ -979,7 +1003,14 @@
     render();
     if (view === 'mates') window.Mates.open();
     if (view === 'board') refreshHome();
-    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    native?.onBack(({canGoBack}) => {
+      if (savePending) return;
+      if (dialog.open) closeDialog();
+      else if (canGoBack) history.back();
+      else if (location.hash && location.hash !== '#board') switchView('board');
+      else native.closeApp();
+    });
+    if (!native && 'serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
   }

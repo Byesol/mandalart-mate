@@ -3,6 +3,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "build:mobile": "node scripts/build-mobile.mjs",
+    "sync:android": "npm run build:mobile && cap sync android",
+    "sync:ios": "npm run build:mobile && cap sync ios",
+    "cap": "cap",
+    "build:android": "npm run sync:android && node scripts/build-android.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/camera": "8.2.6",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/ios": "8.6.2",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2",
+    "esbuild": "0.28.2"
+  },
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
   }
 }

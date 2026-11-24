@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.byesol.mandalartmate",
+  "appName": "만다라트 메이트",
+  "webDir": "dist-mobile",
+  "backgroundColor": "#000000",
+  "ios": {
+    "contentInset": "never"
+  }
+}

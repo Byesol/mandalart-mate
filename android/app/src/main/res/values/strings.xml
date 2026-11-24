@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">만다라트 메이트</string>
+    <string name="title_activity_main">만다라트 메이트</string>
+    <string name="package_name">io.github.byesol.mandalartmate</string>
+    <string name="custom_url_scheme">io.github.byesol.mandalartmate</string>
+</resources>

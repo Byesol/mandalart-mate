@@ -1,6 +1,7 @@
 (function () {
   'use strict';
 
+  const native = window.MandalartNative;
   let app;
   let data;
   let error = '';
@@ -80,7 +81,7 @@
   }
 
   function refreshHome() {
-    return load(false).catch(() => {});
+    return native ? Promise.resolve() : load(false).catch(() => {});
   }
 
   function sampleBoard(code) {
@@ -141,6 +142,11 @@
   }
 
   function render() {
+    if (native) {
+      return '<section class="mates-page"><div class="page-heading"><h1>메이트</h1></div><div class="panel">' +
+        '<p class="empty-note">메이트 연결과 친구 소식은 웹에서 열 수 있어요.</p>' +
+        button('hosted', '웹에서 메이트 열기') + '</div></section>';
+    }
     const heading = '<div class="mate-heading"><h1>메이트</h1>' +
       (data ? button('invite', app.icon('plus') + '메이트 추가') : '') + '</div>';
     if (!data) {
@@ -289,7 +295,7 @@
   }
 
   async function flush() {
-    if (syncing || !pending.size) return;
+    if (native || syncing || !pending.size) return;
     syncing = true;
     try {
       const current = data ?? await load(false);
@@ -325,6 +331,7 @@
   }
 
   function changed(previous, next) {
+    if (native) return;
     const before = new Map(window.Mandalart.populatedGoals(previous).map(entry => [entry.id, entry]));
     const after = new Map(window.Mandalart.populatedGoals(next).map(entry => [entry.id, entry]));
     for (const id of new Set([...before.keys(), ...after.keys()])) {
@@ -338,6 +345,7 @@
   }
 
   async function open() {
+    if (native) return;
     try {
       await load();
       const invite = new URL(location.href).searchParams.get('mate');
@@ -353,8 +361,13 @@
       open();
       return;
     }
-    if (!data) return;
     const action = control.dataset.matesAction;
+    if (action === 'hosted' && native) {
+      try { await native.openMates(); }
+      catch { app.toast('웹 메이트 화면을 열지 못했어요.'); }
+      return;
+    }
+    if (!data) return;
     const code = control.dataset.mateCode;
     if (action === 'filter') {
       filter = code;
