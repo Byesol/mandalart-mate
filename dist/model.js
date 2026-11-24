@@ -88,19 +88,14 @@
     return {total, done, completed, percent: total ? Math.round((done / total) * 100) : 0};
   }
 
-  function nextSlot(board, currentGroup) {
-    if (!board.core.text) return 'core';
-    if (currentGroup !== null) {
-      if (!board.goals[currentGroup].main.text) return currentGroup + ':main';
-      const index = board.goals[currentGroup].actions.findIndex(goal => !goal.text);
-      if (index >= 0) return currentGroup + ':' + index;
-    }
-    const groupIndex = board.goals.findIndex(group => !group.main.text);
-    if (groupIndex >= 0) return groupIndex + ':main';
-    return actionEntries(board).find(entry => !entry.goal.text)?.id ?? null;
+  function nextGroupSlot(board, groupIndex) {
+    const group = board.goals[groupIndex];
+    if (!group.main.text) return groupIndex + ':main';
+    const index = group.actions.findIndex(goal => !goal.text);
+    return index >= 0 ? groupIndex + ':' + index : null;
   }
 
-  const api = {palettes, groups, createBoard, emptyGoal, locate, boardCell, populatedGoals, progress, nextSlot};
+  const api = {palettes, groups, createBoard, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Mandalart = api;
 })(globalThis);

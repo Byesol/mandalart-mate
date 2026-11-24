@@ -14,6 +14,15 @@
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     x: '<path d="m6 6 12 12M6 18 18 6"/>',
     edit: '<path d="m14 6 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20Z"/>',
+    list: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h.01M7 15h.01M10 9h7m-7 6h7"/>',
+    pulse: '<path d="M3 12h4l3-6 4 12 3-6h4"/>',
+    growth: '<path d="M5 19V6m0 13h14M8 15l4-4 3 1 4-5"/>',
+    work: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M3 12h18m-11 0v2h4v-2"/>',
+    heart: '<path d="M20.4 8.5c0 4.3-8.4 9.8-8.4 9.8s-8.4-5.5-8.4-9.8a4.4 4.4 0 0 1 8.4-1.7 4.4 4.4 0 0 1 8.4 1.7Z"/>',
+    wallet: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18m-5 5h2"/>',
+    people: '<circle cx="9" cy="8" r="3"/><path d="M3 19v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2m1-14a3 3 0 0 1 0 6m2 2a4 4 0 0 1 3 4v2"/>',
+    spark: '<path d="M12 3c0 5-2 7-7 7 5 0 7 2 7 7 0-5 2-7 7-7-5 0-7-2-7-7Zm-7 12v4m-2-2h4m12-2v4m-2-2h4"/>',
+    compass: '<circle cx="12" cy="12" r="9"/><path d="m15.6 8.4-2.2 5-5 2.2 2.2-5 5-2.2Z"/>',
     download: '<path d="M12 4v11m-4-4 4 4 4-4M5 17v3h14v-3"/>'
   };
   const navigation = [
@@ -24,6 +33,7 @@
 
   let board = model.createBoard(true);
   let view = 'board';
+  let boardMode = 'areas';
   let activeGroup = null;
   let toastTimer;
   let dbPromise;
@@ -102,84 +112,147 @@
     return groupLabel(entry.groupIndex);
   }
 
+  const areaIcons = ['pulse', 'growth', 'work', 'heart', 'wallet', 'people', 'spark', 'compass'];
+  const completedDate = new Intl.DateTimeFormat('ko-KR', {year: 'numeric', month: 'long', day: 'numeric'});
+
   function navMarkup() {
     return navigation.map(([id, symbol, label]) => {
-      const action = id === 'share' ? 'data-action="share"' : 'data-view="' + id + '"';
+      const action = id === 'share' ? 'data-action="share" aria-haspopup="dialog"' : 'data-view="' + id + '"';
       const current = id === view ? ' aria-current="page"' : '';
-      return '<button type="button" class="nav-button" ' + action + current + '>' + icon(symbol) + '<span>' + label + '</span></button>';
+      return '<button type="button" class="nav-button" ' + action + current + '><span class="nav-icon">' + icon(symbol) + '</span><span>' + label + '</span></button>';
+    }).join('') + '<button type="button" class="nav-button nav-add" data-action="new"><span class="nav-icon">' +
+      icon('plus') + '</span><span>새 목표</span></button>';
+  }
+
+  function areaStyle(index) {
+    const colors = model.palettes[model.groups[index]];
+    return ' style="--tile:' + colors[0] + ';--area:' + colors[3] + '"';
+  }
+
+  function areaIcon(index) {
+    return '<span class="area-icon">' + icon(board.sample ? areaIcons[index] : 'grid') + '</span>';
+  }
+
+  function areaProgress(group) {
+    const total = group.actions.filter(goal => goal.text).length;
+    const done = group.actions.filter(goal => goal.text && goal.doneAt).length;
+    const label = total ? done + ' / ' + total + '개 완료' : '실행 목표 없음';
+    const meter = '<span class="area-meter" aria-hidden="true">' + group.actions.map((_, index) => {
+      const state = index < done ? ' class="done"' : index < total ? ' class="pending"' : '';
+      return '<i' + state + '></i>';
+    }).join('') + '</span>';
+    return {label, meter};
+  }
+
+  function renderAreas() {
+    const cards = board.goals.map((group, index) => {
+      const progress = areaProgress(group);
+      return '<button type="button" class="area-card" data-open-area="' + index + '"' + areaStyle(index) + '>' +
+        '<span class="area-card-head">' + areaIcon(index) + '<span class="area-copy"><strong>' + escape(groupLabel(index)) +
+        '</strong><small>' + progress.label + '</small></span></span>' + progress.meter + '</button>';
     }).join('');
+    return '<section aria-labelledby="areas-title"><div class="section-heading"><h2 id="areas-title">목표 영역</h2></div>' +
+      '<div class="area-grid">' + cards + '</div></section>';
   }
 
-  function sectionsMarkup() {
-    const all = '<button type="button" class="section-button" data-group="all" aria-pressed="' + (activeGroup === null) + '">전체</button>';
-    return all + board.goals.map((group, index) => {
-      const color = model.palettes[group.block][3];
-      const label = groupLabel(index);
-      return '<button type="button" class="section-button" data-group="' + index + '" aria-pressed="' + (activeGroup === index) +
-        '"><span class="section-dot" style="--area:' + color + '"></span><span class="section-label">' + escape(label) + '</span></button>';
-    }).join('');
-  }
-
-  function dateLabel(date) {
-    return new Intl.DateTimeFormat('ko-KR', {month: 'long', day: 'numeric'}).format(new Date(date));
-  }
-
-  function recentRow(entry, showPhoto) {
-    const photo = showPhoto && entry.goal.photo
-      ? '<img src="' + escape(entry.goal.photo) + '" alt="완료 인증 사진" loading="lazy">' : '';
-    const accent = entry.groupIndex === null ? model.palettes[4][3] : model.palettes[model.groups[entry.groupIndex]][3];
-    return '<button type="button" class="recent-row" data-edit="' + entry.id + '">' +
-      '<span class="recent-check" style="--area:' + accent + '">' + icon('check') + '</span>' +
-      '<span class="recent-copy"><strong>' + escape(entry.goal.text) + '</strong><small>' +
-      escape(entryLabel(entry)) + ' · ' + dateLabel(entry.goal.doneAt) + '</small></span>' + photo + '</button>';
-  }
-
-  function renderInsights(stats) {
-    const recent = stats.completed.length
-      ? '<div class="recent-list">' + stats.completed.slice(0, 3).map(entry => recentRow(entry, false)).join('') + '</div>'
-      : '<p class="empty-note">완료한 목표가 여기에 표시돼요.</p>';
-    const recentPanel = view === 'board'
-      ? '<section class="panel"><div class="card-head"><h2>최근 완료</h2>' +
-        (stats.completed.length ? '<button type="button" class="text-button" data-view="completed">전체 보기</button>' : '') +
-        '</div>' + recent + '</section>' : '';
-    $('insights').innerHTML =
-      '<section class="panel"><h2>실행 목표 진행률</h2><p class="progress-percent">' + stats.percent + '%</p>' +
-      '<progress class="progress-track" max="100" value="' + stats.percent + '" aria-label="실행 목표 진행률"></progress>' +
-      '<p class="progress-label"><span>완료 <strong>' + stats.done + '</strong> / ' + stats.total + '개</span><span>남은 목표 ' +
-      (stats.total - stats.done) + '개</span></p></section>' + recentPanel;
-  }
-
-  function renderBoard() {
-    const headline = board.core.text || '중심 목표 추가';
+  function renderMission(stats) {
+    const title = board.core.text || '중심 목표 추가';
     const sample = board.sample ? '<button type="button" class="sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
-    const blocks = Array.from({length: 9}, (_, block) => {
-      const colors = model.palettes[block];
-      const selected = activeGroup === null || block === 4 ? '' : model.groups[activeGroup] === block ? ' selected' : ' dim';
-      const cells = Array.from({length: 9}, (_, position) => {
-        const entry = model.boardCell(board, block, position);
-        const goal = entry.goal;
-        const mirrored = block === 4 && position !== 4 ? model.palettes[position] : null;
-        const accent = mirrored ? ' style="--block:' + mirrored[0] + ';--area:' + mirrored[3] + '"' : '';
-        const cellType = entry.kind === 'action' ? '' : ' ' + entry.kind;
-        const name = entry.kind === 'action' ? entryLabel(entry) + ' 실행 목표' : entryLabel(entry);
-        const label = name + (goal.text ? ' · ' + goal.text : ' 추가') + (goal.doneAt ? ' · 완료' : '');
-        const mark = goal.doneAt ? '<span class="cell-mark">' + icon('check') + '</span>' : '';
-        return '<button type="button" class="cell' + cellType + (goal.doneAt ? ' done' : '') + (goal.text ? '' : ' empty') +
-          '" data-edit="' + entry.id + '" aria-label="' + escape(label) + '"' + accent + '>' +
-          (goal.text ? '<span>' + escape(goal.text) + '</span>' : icon('plus')) + mark + '</button>';
-      }).join('');
-      return '<div class="block' + selected + '" style="--block:' + colors[0] + ';--cell:' + colors[1] +
-        ';--block-line:' + colors[2] + ';--area:' + colors[3] + '" role="group" aria-label="' +
-        escape(block === 4 ? '중심 목표와 영역 목표' : groupLabel(model.groups.indexOf(block))) + '">' + cells + '</div>';
+    const ring = '<div class="progress-ring" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+      stats.percent + '" aria-label="실행 목표 진행률"><svg viewBox="0 0 70 70" aria-hidden="true">' +
+      '<circle cx="35" cy="35" r="29" fill="none" stroke="#42354f" stroke-width="5"/>' +
+      (stats.percent ? '<circle cx="35" cy="35" r="29" fill="none" stroke="#dec5ff" stroke-width="5" stroke-linecap="round" pathLength="100" stroke-dasharray="' +
+        stats.percent + ' 100"/>' : '') + '</svg><span aria-hidden="true">' + stats.percent + '%</span></div>';
+    return '<section class="mission" aria-label="중심 목표와 진행률"><div class="mission-main"><div>' +
+      '<p class="mission-kicker">' + icon('target') + '중심 목표</p><h1><button class="core-title" type="button" data-edit="core">' +
+      escape(title) + icon(board.core.text ? 'edit' : 'plus') + '</button></h1>' +
+      '<p class="mission-count">실행 목표 <strong>' + stats.done + ' / ' + stats.total + '개</strong> 완료</p></div>' +
+      ring + '</div>' + sample + '</section>';
+  }
+
+  function renderModes() {
+    return '<div class="mode-control" role="group" aria-label="목표 보기 방식">' +
+      '<button type="button" class="mode-button" data-mode="areas" aria-pressed="' + (boardMode === 'areas') + '">' +
+      icon('list') + '영역별 목표</button><button type="button" class="mode-button" data-mode="grid" aria-pressed="' +
+      (boardMode === 'grid') + '">' + icon('grid') + '9×9 전체판</button></div>';
+  }
+
+  function renderGridBlock(block) {
+    const colors = model.palettes[block];
+    const cells = Array.from({length: 9}, (_, position) => {
+      const entry = model.boardCell(board, block, position);
+      const goal = entry.goal;
+      const mirrored = block === 4 && position !== 4 ? model.palettes[position] : null;
+      const accent = mirrored ? ' style="--block:' + mirrored[0] + ';--area:' + mirrored[3] + '"' : '';
+      const cellType = entry.kind === 'action' ? '' : ' ' + entry.kind;
+      const name = entry.kind === 'action' ? entryLabel(entry) + ' 실행 목표' : entryLabel(entry);
+      const label = name + (goal.text ? ' · ' + goal.text : ' 추가') + (goal.doneAt ? ' · 완료' : '');
+      const mark = goal.doneAt ? '<span class="cell-mark">' + icon('check') + '</span>' : '';
+      return '<button type="button" class="cell' + cellType + (goal.doneAt ? ' done' : '') + (goal.text ? '' : ' empty') +
+        '" data-edit="' + entry.id + '" aria-label="' + escape(label) + '"' + accent + '>' +
+        (goal.text ? '<span>' + escape(goal.text) + '</span>' : icon('plus')) + mark + '</button>';
     }).join('');
-    return '<section class="panel board-panel" aria-label="만다라트 목표판">' +
-      '<div class="core-row"><span class="core-symbol">' + icon('target') + '</span>' +
-      '<div class="core-copy"><span>중심 목표</span><button class="core-title" type="button" data-edit="core">' +
-      escape(headline) + icon('edit') + '</button></div>' + sample + '</div>' +
-      '<div class="area-filters" role="group" aria-label="목표 영역">' + sectionsMarkup() + '</div>' +
-      '<div class="board-scroll"><div class="board' + (activeGroup === null ? '' : ' group-focus') + '" aria-label="9×9 만다라트 목표판">' + blocks + '</div></div>' +
+    return '<div class="block" style="--block:' + colors[0] + ';--cell:' + colors[1] +
+      ';--block-line:' + colors[2] + ';--area:' + colors[3] + '" role="group" aria-label="' +
+      escape(block === 4 ? '중심 목표와 영역 목표' : groupLabel(model.groups.indexOf(block))) + '">' + cells + '</div>';
+  }
+
+  function renderGrid() {
+    const blocks = Array.from({length: 9}, (_, block) => renderGridBlock(block)).join('');
+    return '<section class="panel grid-panel" aria-label="9×9 만다라트 목표판">' +
+      '<div class="board-scroll"><div class="board">' + blocks + '</div></div>' +
       '<div class="legend"><span><i style="--key:#d2bdff"></i>중심 목표</span><span><i style="--key:#3b314a"></i>영역 목표</span>' +
-      '<span><i style="--key:#1e1c23"></i>실행 목표</span><span>' + icon('check') + ' 완료</span></div></section>';
+      '<span><i style="--key:#1e1c23"></i>실행 목표</span><span>' + icon('check') + '완료</span></div></section>';
+  }
+
+  function taskRow(goal, groupIndex, index) {
+    const id = groupIndex + ':' + index;
+    const done = Boolean(goal.doneAt);
+    const label = escape(goal.text);
+    const photo = goal.photo ? '<img src="' + escape(goal.photo) + '" alt="" loading="lazy">' : icon('image');
+    const photoButton = done ? '<button type="button" class="icon-button task-extra' + (goal.photo ? ' has-photo' : '') +
+      '" data-photo="' + id + '" aria-label="' + label + (goal.photo ? ' 인증 사진 보기' : ' 인증 사진 추가') + '">' + photo + '</button>' : '';
+    return '<div class="task-row' + (done ? ' done' : '') + '"><button type="button" class="task-check" data-complete="' +
+      id + '" aria-pressed="' + done + '" aria-label="' + label + ' 완료"><i>' + (done ? icon('check') : '') + '</i></button>' +
+      '<button type="button" class="task-name" data-edit="' + id + '">' + label + '</button>' + photoButton + '</div>';
+  }
+
+  function renderArea(index) {
+    const group = board.goals[index];
+    const title = groupLabel(index);
+    const progress = areaProgress(group);
+    const tasks = group.actions.map((goal, actionIndex) => goal.text ? taskRow(goal, index, actionIndex) : '').join('');
+    return '<button type="button" class="button secondary back-area" data-action="areas">' + icon('list') + '목표 영역</button>' +
+      '<section class="panel area-summary"' + areaStyle(index) + '><div class="area-header">' + areaIcon(index) +
+      '<div><h1>' + escape(title) + '</h1><p>' + progress.label + '</p></div>' +
+      '<button type="button" class="icon-button" data-edit="' + index + ':main" aria-label="영역 목표 편집">' +
+      icon(group.main.text ? 'edit' : 'plus') + '</button></div>' + progress.meter + '</section>' +
+      '<section aria-labelledby="tasks-title"' + areaStyle(index) + '><div class="section-heading"><h2 id="tasks-title">실행 목표</h2></div>' +
+      (tasks ? '<div class="task-list">' + tasks + '</div>' : '<p class="panel empty-note">아직 실행 목표가 없어요.</p>') + '</section>' +
+      '<details class="area-board" data-area="' + index + '"><summary>' + icon('grid') + '3×3으로 보기</summary>' +
+      renderGridBlock(group.block) + '</details>';
+  }
+
+  function recentRow(entry) {
+    const photo = entry.goal.photo ? '<img src="' + escape(entry.goal.photo) + '" alt="완료 인증 사진" loading="lazy">' : '';
+    const accent = entry.groupIndex === null ? model.palettes[4][3] : model.palettes[model.groups[entry.groupIndex]][3];
+    return '<button type="button" class="recent-row" data-edit="' + entry.id + '"><span class="recent-check" style="--area:' +
+      accent + '">' + icon('check') + '</span><span class="recent-copy"><strong>' + escape(entry.goal.text) +
+      '</strong><small>' + escape(entryLabel(entry)) + '</small></span>' + photo + '</button>';
+  }
+
+  function renderCompleted(entries) {
+    const days = new Map();
+    for (const entry of entries) {
+      const key = completedDate.format(new Date(entry.goal.doneAt));
+      if (!days.has(key)) days.set(key, []);
+      days.get(key).push(entry);
+    }
+    const lists = Array.from(days, ([date, items]) =>
+      '<section class="completed-day"><h2>' + escape(date) + '</h2><div class="completed-list">' +
+      items.map(recentRow).join('') + '</div></section>').join('');
+    return '<div class="completed-header"><h1>완료 기록</h1><p>' + entries.length + '개 완료</p></div>' +
+      (lists || '<section class="panel"><p class="empty-note">아직 완료한 목표가 없어요.</p></section>');
   }
 
   function render() {
@@ -187,12 +260,16 @@
     const nav = navMarkup();
     $('desktop-nav').innerHTML = nav;
     $('mobile-nav').innerHTML = nav;
-    $('page-title').textContent = view === 'board' ? '내 만다라트' : '완료 기록';
-    $('main-view').innerHTML = view === 'board' ? renderBoard() :
-      '<section class="panel page-panel" aria-label="완료한 목표">' +
-      (stats.completed.length ? '<div class="completed-list">' + stats.completed.map(entry => recentRow(entry, true)).join('') + '</div>'
-        : '<p class="empty-note">아직 완료한 목표가 없어요.</p>') + '</section>';
-    renderInsights(stats);
+    if (view === 'completed') {
+      $('main-view').innerHTML = renderCompleted(stats.completed);
+      return;
+    }
+    const main = $('main-view');
+    const wasExpanded = main.querySelector('.area-board[data-area="' + activeGroup + '"]')?.open;
+    main.innerHTML = activeGroup === null
+      ? renderMission(stats) + renderModes() + (boardMode === 'grid' ? renderGrid() : renderAreas())
+      : renderArea(activeGroup);
+    if (wasExpanded) main.querySelector('.area-board').open = true;
   }
 
   function showDialog(title, subtitle, content) {
@@ -212,14 +289,14 @@
 
   function dialogActions(buttons) { return '<div class="dialog-actions">' + buttons + '</div>'; }
 
-  function openEditor(id) {
+  function openEditor(id, {focusPhoto = false, navigateTo = null} = {}) {
     const entry = model.locate(board, id);
     if (!entry) return;
     const goal = entry.goal;
     const type = entry.kind === 'core' ? '중심 목표' : entry.kind === 'goal' ? '영역 목표' : '실행 목표';
     showDialog(type + (goal.text ? ' 편집' : ' 추가'), entry.kind === 'action' ? entryLabel(entry) : '',
       '<form id="goal-form"><label class="field">목표 이름<input name="text" maxlength="48" required placeholder="목표를 입력하세요" value="' +
-      escape(goal.text) + '" autofocus></label>' +
+      escape(goal.text) + '"></label>' +
       '<label class="check-line"><input name="done" type="checkbox"' + (goal.doneAt ? ' checked' : '') + '> 완료했어요</label>' +
       '<div class="proof" id="proof"><label class="field">인증 사진<input name="image" type="file" accept="image/*"></label>' +
       '<div id="proof-preview"></div>' + actionButton('remove-photo', '사진 제거') +
@@ -228,6 +305,7 @@
       dialogActions((goal.text ? actionButton('delete-goal', '목표 삭제', 'secondary danger') : '') +
         actionButton('close', '취소') + '<button type="submit" class="button primary">저장</button>') + '</form>');
     const form = $('goal-form');
+    form.elements[focusPhoto ? 'image' : 'text'].focus({preventScroll: true});
     const remove = form.querySelector('[data-action="remove-photo"]');
     let photo = goal.photo;
     let photoTask = null;
@@ -288,10 +366,11 @@
       try {
         if (done && photoTask) await photoTask;
         await update(next => Object.assign(model.locate(next, id).goal, {
-          text, doneAt: done ? goal.doneAt || new Date().toISOString() : null, photo: done ? photo : null
+          text, doneAt: done ? goal.doneAt || new Date().toISOString() : null, photo
         }));
         dialog.close();
-        render();
+        if (navigateTo === null) render();
+        else switchView('board', 'areas', navigateTo);
         document.querySelector('[data-edit="' + id + '"]')?.focus({preventScroll: true});
         toast(done && !goal.doneAt ? '목표를 완료했어요!' : '목표를 저장했어요.');
       } catch {
@@ -501,7 +580,7 @@
     canvas.width = 800;
     ctx.font = canvasFont(24, 720);
     const items = entries.map(entry => {
-      const hasPhoto = withPhotos && Boolean(entry.goal.photo);
+      const hasPhoto = withPhotos && Boolean(entry.goal.doneAt && entry.goal.photo);
       const lines = writeLines(ctx, entry.goal.text, hasPhoto ? 490 : 610, 4);
       return {entry, hasPhoto, lines, height: Math.max(hasPhoto ? 112 : 82, 53 + lines.length * 30)};
     });
@@ -593,34 +672,107 @@
     field.select();
   }
 
-  function switchView(next) {
-    view = next;
-    activeGroup = null;
+  function readScreen() {
+    const fragment = location.hash;
+    const area = /^#area-([1-8])$/.exec(fragment);
+    view = fragment === '#completed' ? 'completed' : 'board';
+    boardMode = fragment === '#board' ? 'grid' : 'areas';
+    activeGroup = area ? Number(area[1]) - 1 : null;
+  }
+
+  function showScreen() {
+    readScreen();
     render();
+    window.scrollTo(0, 0);
     $('main').focus({preventScroll: true});
   }
 
+  function switchView(next, mode = 'areas', group = null) {
+    const fragment = next === 'completed' ? '#completed' :
+      group !== null ? '#area-' + (group + 1) : mode === 'grid' ? '#board' : '#areas';
+    if ((location.hash || '#areas') !== fragment) {
+      history.pushState({mandalartFrom: location.hash || '#areas'}, '', fragment);
+    }
+    showScreen();
+  }
+
+  function openAddPicker() {
+    const options = board.goals.map((_, index) => {
+      const id = model.nextGroupSlot(board, index);
+      return '<button type="button" class="area-card add-option"' + (id ? ' data-add-to="' + id + '"' : ' disabled') +
+        areaStyle(index) + '><span class="area-card-head">' + areaIcon(index) + '<span class="area-copy"><strong>' +
+        escape(groupLabel(index)) + '</strong><small>' + (id ? (id.endsWith(':main') ? '영역 목표 추가' : '실행 목표 추가') : '모든 칸 사용 중') +
+        '</small></span></span></button>';
+    }).join('');
+    showDialog('목표 추가', '목표를 넣을 영역을 고르세요.', '<div class="area-grid add-grid">' + options + '</div>');
+  }
+
+  function startAdd() {
+    if (activeGroup !== null) {
+      const id = model.nextGroupSlot(board, activeGroup);
+      if (id) openEditor(id);
+      else toast('이 영역의 실행 목표가 모두 채워졌어요.');
+      return;
+    }
+    if (!board.core.text) {
+      openEditor('core');
+      return;
+    }
+    openAddPicker();
+  }
+
+  async function toggleCompletion(id) {
+    const entry = model.locate(board, id);
+    if (!entry?.goal.text) return;
+    savePending = true;
+    const done = !entry.goal.doneAt;
+    const control = document.querySelector('[data-complete="' + id + '"]');
+    if (control) control.disabled = true;
+    try {
+      await update(next => { model.locate(next, id).goal.doneAt = done ? new Date().toISOString() : null; });
+      render();
+      document.querySelector('[data-complete="' + id + '"]')?.focus({preventScroll: true});
+      toast(done ? '목표를 완료했어요!' : '완료 표시를 취소했어요.');
+    } catch {
+      if (control) control.disabled = false;
+      toast('완료 상태를 저장하지 못했어요.');
+    } finally {
+      savePending = false;
+    }
+  }
+
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-group]');
+    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-mode], [data-open-area], [data-complete], [data-photo], [data-add-to]');
     if (!control || loading || savePending) return;
     if (control.dataset.view) {
       event.preventDefault();
       switchView(control.dataset.view);
       return;
     }
+    if (control.dataset.mode) {
+      if (boardMode !== control.dataset.mode) switchView('board', control.dataset.mode);
+      document.querySelector('[data-mode="' + control.dataset.mode + '"]')?.focus({preventScroll: true});
+      return;
+    }
+    if (control.dataset.openArea !== undefined) {
+      switchView('board', 'areas', Number(control.dataset.openArea));
+      return;
+    }
     if (control.dataset.edit) {
       openEditor(control.dataset.edit);
       return;
     }
-    if (control.dataset.group) {
-      const selected = control.dataset.group === 'all' ? null : Number(control.dataset.group);
-      activeGroup = activeGroup === selected ? null : selected;
-      view = 'board';
-      const scrollLeft = control.parentElement.scrollLeft;
-      render();
-      const filters = document.querySelector('.area-filters');
-      filters.scrollLeft = scrollLeft;
-      filters.querySelector('[data-group="' + control.dataset.group + '"]')?.focus({preventScroll: true});
+    if (control.dataset.complete) {
+      await toggleCompletion(control.dataset.complete);
+      return;
+    }
+    if (control.dataset.photo) {
+      openEditor(control.dataset.photo, {focusPhoto: true});
+      return;
+    }
+    if (control.dataset.addTo) {
+      const entry = model.locate(board, control.dataset.addTo);
+      if (entry) openEditor(entry.id, {navigateTo: entry.groupIndex});
       return;
     }
 
@@ -628,12 +780,13 @@
       case 'close':
         closeDialog();
         break;
-      case 'new': {
-        const id = model.nextSlot(board, activeGroup);
-        if (id) openEditor(id);
-        else toast('모든 칸이 채워졌어요. 목표판에서 기존 목표를 편집할 수 있어요.');
+      case 'new':
+        startAdd();
         break;
-      }
+      case 'areas':
+        if (history.state?.mandalartFrom === '#areas') history.back();
+        else switchView('board');
+        break;
       case 'blank':
         confirmChange('빈 목표판에서 시작할까요?', '현재 목표, 완료 기록, 인증 사진을 모두 지우고 새로 시작해요.', async () => {
           const empty = model.createBoard();
@@ -679,12 +832,14 @@
     if (savePending) event.preventDefault();
   });
   dialog.addEventListener('close', clearPreview);
+  window.addEventListener('popstate', () => {
+    if (dialog.open && !savePending) dialog.close();
+    showScreen();
+  });
 
   async function start() {
     const exportButton = document.querySelector('[data-action="export"]');
-    exportButton.innerHTML = icon('download') + '<span>이미지 저장</span>';
-    exportButton.setAttribute('aria-label', '목표판 이미지 저장');
-    document.querySelector('[data-action="new"]').innerHTML = icon('plus') + ' 새 목표';
+    exportButton.innerHTML = icon('download');
     try {
       const saved = await loadBoard();
       if (saved?.version === 1) board = saved;
@@ -692,6 +847,7 @@
       toast('저장한 목표를 불러오지 못했어요.');
     }
     loading = false;
+    readScreen();
     render();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
