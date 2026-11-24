@@ -27,13 +27,12 @@
   };
   const navigation = [
     ['board', 'grid', '목표판'],
-    ['completed', 'checkCircle', '완료 기록'],
-    ['share', 'share', '공유하기']
+    ['mates', 'people', '메이트'],
+    ['completed', 'checkCircle', '완료 기록']
   ];
 
   let board = model.createBoard(true);
   let view = 'board';
-  let boardMode = 'areas';
   let activeGroup = null;
   let toastTimer;
   let dbPromise;
@@ -92,7 +91,9 @@
     const nextBoard = JSON.parse(JSON.stringify(board));
     change(nextBoard);
     await persist(nextBoard);
+    const previous = board;
     board = nextBoard;
+    window.Mates.changed(previous, board);
   }
 
   function toast(message) {
@@ -117,7 +118,7 @@
 
   function navMarkup() {
     return navigation.map(([id, symbol, label]) => {
-      const action = id === 'share' ? 'data-action="share" aria-haspopup="dialog"' : 'data-view="' + id + '"';
+      const action = 'data-view="' + id + '"';
       const current = id === view ? ' aria-current="page"' : '';
       return '<button type="button" class="nav-button" ' + action + current + '><span class="nav-icon">' + icon(symbol) + '</span><span>' + label + '</span></button>';
     }).join('') + '<button type="button" class="nav-button nav-add" data-action="new"><span class="nav-icon">' +
@@ -134,8 +135,8 @@
   }
 
   function areaProgress(group) {
-    const total = group.actions.filter(goal => goal.text).length;
-    const done = group.actions.filter(goal => goal.text && goal.doneAt).length;
+    const total = group.actions.filter(model.filled).length;
+    const done = group.actions.filter(goal => model.filled(goal) && goal.doneAt).length;
     const label = total ? done + ' / ' + total + '개 완료' : '실행 목표 없음';
     const meter = '<span class="area-meter" aria-hidden="true">' + group.actions.map((_, index) => {
       const state = index < done ? ' class="done"' : index < total ? ' class="pending"' : '';
@@ -151,30 +152,18 @@
         '<span class="area-card-head">' + areaIcon(index) + '<span class="area-copy"><strong>' + escape(groupLabel(index)) +
         '</strong><small>' + progress.label + '</small></span></span>' + progress.meter + '</button>';
     }).join('');
-    return '<section aria-labelledby="areas-title"><div class="section-heading"><h2 id="areas-title">목표 영역</h2></div>' +
+    const sample = board.sample ? '<button type="button" class="text-button sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
+    return '<section aria-labelledby="areas-title"><div class="section-heading"><h2 id="areas-title">목표 영역 8개</h2>' +
+      sample + '</div>' +
       '<div class="area-grid">' + cards + '</div></section>';
   }
 
   function renderMission(stats) {
-    const title = board.core.text || '중심 목표 추가';
-    const sample = board.sample ? '<button type="button" class="sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
-    const ring = '<div class="progress-ring" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
-      stats.percent + '" aria-label="실행 목표 진행률"><svg viewBox="0 0 70 70" aria-hidden="true">' +
-      '<circle cx="35" cy="35" r="29" fill="none" stroke="#42354f" stroke-width="5"/>' +
-      (stats.percent ? '<circle cx="35" cy="35" r="29" fill="none" stroke="#dec5ff" stroke-width="5" stroke-linecap="round" pathLength="100" stroke-dasharray="' +
-        stats.percent + ' 100"/>' : '') + '</svg><span aria-hidden="true">' + stats.percent + '%</span></div>';
-    return '<section class="mission" aria-label="중심 목표와 진행률"><div class="mission-main"><div>' +
-      '<p class="mission-kicker">' + icon('target') + '중심 목표</p><h1><button class="core-title" type="button" data-edit="core">' +
-      escape(title) + icon(board.core.text ? 'edit' : 'plus') + '</button></h1>' +
-      '<p class="mission-count">실행 목표 <strong>' + stats.done + ' / ' + stats.total + '개</strong> 완료</p></div>' +
-      ring + '</div>' + sample + '</section>';
-  }
-
-  function renderModes() {
-    return '<div class="mode-control" role="group" aria-label="목표 보기 방식">' +
-      '<button type="button" class="mode-button" data-mode="areas" aria-pressed="' + (boardMode === 'areas') + '">' +
-      icon('list') + '영역별 목표</button><button type="button" class="mode-button" data-mode="grid" aria-pressed="' +
-      (boardMode === 'grid') + '">' + icon('grid') + '9×9 전체판</button></div>';
+    const title = model.goalTitle(board.core) || '중심 목표 추가';
+    return '<section class="board-lead"><div><h1>내 만다라트</h1><button class="board-core" type="button" data-edit="core">' +
+      icon('target') + '<span>' + escape(title) + '</span>' + icon(board.core.text ? 'edit' : 'plus') + '</button></div>' +
+      '<div class="board-progress"><strong>' + stats.percent + '%</strong><progress max="100" value="' + stats.percent +
+      '" aria-label="실행 목표 진행률"></progress><small>' + stats.done + ' / ' + stats.total + ' 완료</small></div></section>';
   }
 
   function renderGridBlock(block) {
@@ -186,11 +175,15 @@
       const accent = mirrored ? ' style="--block:' + mirrored[0] + ';--area:' + mirrored[3] + '"' : '';
       const cellType = entry.kind === 'action' ? '' : ' ' + entry.kind;
       const name = entry.kind === 'action' ? entryLabel(entry) + ' 실행 목표' : entryLabel(entry);
-      const label = name + (goal.text ? ' · ' + goal.text : ' 추가') + (goal.doneAt ? ' · 완료' : '');
+      const filled = model.filled(goal);
+      const label = name + (filled ? ' · ' + model.goalTitle(goal) : ' 추가') + (goal.photo ? ' · 사진 첨부' : '') +
+        (goal.doneAt ? ' · 완료' : '');
       const mark = goal.doneAt ? '<span class="cell-mark">' + icon('check') + '</span>' : '';
-      return '<button type="button" class="cell' + cellType + (goal.doneAt ? ' done' : '') + (goal.text ? '' : ' empty') +
-        '" data-edit="' + entry.id + '" aria-label="' + escape(label) + '"' + accent + '>' +
-        (goal.text ? '<span>' + escape(goal.text) + '</span>' : icon('plus')) + mark + '</button>';
+      const photo = goal.photo ? '<img class="cell-photo" src="' + escape(goal.photo) + '" alt="">' : '';
+      const caption = goal.text ? '<span class="cell-text">' + escape(goal.text) + '</span>' : '';
+      return '<button type="button" class="cell' + cellType + (goal.doneAt ? ' done' : '') + (filled ? '' : ' empty') +
+        (goal.photo ? ' photographed' : '') + '" data-edit="' + entry.id + '" aria-label="' + escape(label) + '"' + accent + '>' +
+        (filled ? photo + caption : icon('plus')) + mark + '</button>';
     }).join('');
     return '<div class="block" style="--block:' + colors[0] + ';--cell:' + colors[1] +
       ';--block-line:' + colors[2] + ';--area:' + colors[3] + '" role="group" aria-label="' +
@@ -201,17 +194,16 @@
     const blocks = Array.from({length: 9}, (_, block) => renderGridBlock(block)).join('');
     return '<section class="panel grid-panel" aria-label="9×9 만다라트 목표판">' +
       '<div class="board-scroll"><div class="board">' + blocks + '</div></div>' +
-      '<div class="legend"><span><i style="--key:#d2bdff"></i>중심 목표</span><span><i style="--key:#3b314a"></i>영역 목표</span>' +
-      '<span><i style="--key:#1e1c23"></i>실행 목표</span><span>' + icon('check') + '완료</span></div></section>';
+      '<p class="board-hint">칸을 눌러 목표와 사진을 넣으세요.</p></section>';
   }
 
   function taskRow(goal, groupIndex, index) {
     const id = groupIndex + ':' + index;
     const done = Boolean(goal.doneAt);
-    const label = escape(goal.text);
+    const label = escape(model.goalTitle(goal));
     const photo = goal.photo ? '<img src="' + escape(goal.photo) + '" alt="" loading="lazy">' : icon('image');
-    const photoButton = done ? '<button type="button" class="icon-button task-extra' + (goal.photo ? ' has-photo' : '') +
-      '" data-photo="' + id + '" aria-label="' + label + (goal.photo ? ' 인증 사진 보기' : ' 인증 사진 추가') + '">' + photo + '</button>' : '';
+    const photoButton = '<button type="button" class="icon-button task-extra' + (goal.photo ? ' has-photo' : '') +
+      '" data-photo="' + id + '" aria-label="' + label + (goal.photo ? ' 사진 보기' : ' 사진 추가') + '">' + photo + '</button>';
     return '<div class="task-row' + (done ? ' done' : '') + '"><button type="button" class="task-check" data-complete="' +
       id + '" aria-pressed="' + done + '" aria-label="' + label + ' 완료"><i>' + (done ? icon('check') : '') + '</i></button>' +
       '<button type="button" class="task-name" data-edit="' + id + '">' + label + '</button>' + photoButton + '</div>';
@@ -221,7 +213,7 @@
     const group = board.goals[index];
     const title = groupLabel(index);
     const progress = areaProgress(group);
-    const tasks = group.actions.map((goal, actionIndex) => goal.text ? taskRow(goal, index, actionIndex) : '').join('');
+    const tasks = group.actions.map((goal, actionIndex) => model.filled(goal) ? taskRow(goal, index, actionIndex) : '').join('');
     return '<button type="button" class="button secondary back-area" data-action="areas">' + icon('list') + '목표 영역</button>' +
       '<section class="panel area-summary"' + areaStyle(index) + '><div class="area-header">' + areaIcon(index) +
       '<div><h1>' + escape(title) + '</h1><p>' + progress.label + '</p></div>' +
@@ -237,7 +229,7 @@
     const photo = entry.goal.photo ? '<img src="' + escape(entry.goal.photo) + '" alt="완료 인증 사진" loading="lazy">' : '';
     const accent = entry.groupIndex === null ? model.palettes[4][3] : model.palettes[model.groups[entry.groupIndex]][3];
     return '<button type="button" class="recent-row" data-edit="' + entry.id + '"><span class="recent-check" style="--area:' +
-      accent + '">' + icon('check') + '</span><span class="recent-copy"><strong>' + escape(entry.goal.text) +
+      accent + '">' + icon('check') + '</span><span class="recent-copy"><strong>' + escape(model.goalTitle(entry.goal)) +
       '</strong><small>' + escape(entryLabel(entry)) + '</small></span>' + photo + '</button>';
   }
 
@@ -260,6 +252,10 @@
     const nav = navMarkup();
     $('desktop-nav').innerHTML = nav;
     $('mobile-nav').innerHTML = nav;
+    if (view === 'mates') {
+      $('main-view').innerHTML = window.Mates.render();
+      return;
+    }
     if (view === 'completed') {
       $('main-view').innerHTML = renderCompleted(stats.completed);
       return;
@@ -267,7 +263,7 @@
     const main = $('main-view');
     const wasExpanded = main.querySelector('.area-board[data-area="' + activeGroup + '"]')?.open;
     main.innerHTML = activeGroup === null
-      ? renderMission(stats) + renderModes() + (boardMode === 'grid' ? renderGrid() : renderAreas())
+      ? renderMission(stats) + renderGrid() + renderAreas()
       : renderArea(activeGroup);
     if (wasExpanded) main.querySelector('.area-board').open = true;
   }
@@ -294,15 +290,15 @@
     if (!entry) return;
     const goal = entry.goal;
     const type = entry.kind === 'core' ? '중심 목표' : entry.kind === 'goal' ? '영역 목표' : '실행 목표';
-    showDialog(type + (goal.text ? ' 편집' : ' 추가'), entry.kind === 'action' ? entryLabel(entry) : '',
-      '<form id="goal-form"><label class="field">목표 이름<input name="text" maxlength="48" required placeholder="목표를 입력하세요" value="' +
+    showDialog(type + (model.filled(goal) ? ' 편집' : ' 추가'), entry.kind === 'action' ? entryLabel(entry) : '',
+      '<form id="goal-form"><label class="field">목표 이름<input name="text" maxlength="48" placeholder="목표 또는 사진 제목" value="' +
       escape(goal.text) + '"></label>' +
       '<label class="check-line"><input name="done" type="checkbox"' + (goal.doneAt ? ' checked' : '') + '> 완료했어요</label>' +
-      '<div class="proof" id="proof"><label class="field">인증 사진<input name="image" type="file" accept="image/*"></label>' +
+      '<div class="proof" id="proof"><label class="field">사진<input name="image" type="file" accept="image/*"></label>' +
       '<div id="proof-preview"></div>' + actionButton('remove-photo', '사진 제거') +
-      '<p class="dialog-copy">사진은 완료한 목표에 첨부할 수 있어요.</p></div>' +
+      '<p class="dialog-copy">사진을 넣으면 목표판 칸에 바로 보여요.</p></div>' +
       '<p class="form-error" id="form-error" role="alert"></p>' +
-      dialogActions((goal.text ? actionButton('delete-goal', '목표 삭제', 'secondary danger') : '') +
+      dialogActions((model.filled(goal) ? actionButton('delete-goal', '목표 삭제', 'secondary danger') : '') +
         actionButton('close', '취소') + '<button type="submit" class="button primary">저장</button>') + '</form>');
     const form = $('goal-form');
     form.elements[focusPhoto ? 'image' : 'text'].focus({preventScroll: true});
@@ -311,12 +307,10 @@
     let photoTask = null;
 
     function syncPhoto() {
-      $('proof').hidden = !form.elements.done.checked;
       $('proof-preview').innerHTML = photo ? '<img src="' + escape(photo) + '" alt="인증 사진 미리보기">' : '';
       remove.hidden = !photo;
     }
     syncPhoto();
-    form.elements.done.addEventListener('change', syncPhoto);
     remove.addEventListener('click', () => {
       photo = null;
       form.elements.image.value = '';
@@ -354,23 +348,24 @@
       if (savePending) return;
       const input = form.elements.text;
       const text = input.value.trim();
-      if (!text) {
-        $('form-error').textContent = '목표 이름을 입력해 주세요.';
-        input.focus();
-        return;
-      }
       const done = form.elements.done.checked;
       const submit = form.querySelector('[type="submit"]');
       submit.disabled = true;
       savePending = true;
       try {
-        if (done && photoTask) await photoTask;
+        if (photoTask) await photoTask;
+        if (!text && !photo) {
+          $('form-error').textContent = '목표 이름을 입력하거나 사진을 넣어 주세요.';
+          input.focus();
+          submit.disabled = false;
+          return;
+        }
         await update(next => Object.assign(model.locate(next, id).goal, {
           text, doneAt: done ? goal.doneAt || new Date().toISOString() : null, photo
         }));
         dialog.close();
         if (navigateTo === null) render();
-        else switchView('board', 'areas', navigateTo);
+        else switchView('board', navigateTo);
         document.querySelector('[data-edit="' + id + '"]')?.focus({preventScroll: true});
         toast(done && !goal.doneAt ? '목표를 완료했어요!' : '목표를 저장했어요.');
       } catch {
@@ -404,7 +399,8 @@
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', .77);
+      const photo = canvas.toDataURL('image/jpeg', .77);
+      return photo.length <= 860_000 ? photo : canvas.toDataURL('image/jpeg', .59);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -443,13 +439,13 @@
     }
     const sharingList = goals.map(entry =>
       '<label class="check-line share-option"><input type="checkbox" value="' + entry.id + '"' +
-      (initialSelection?.has(entry.id) ? ' checked' : '') + '><span>' + escape(entry.goal.text) + '</span><small>' +
+      (initialSelection?.has(entry.id) ? ' checked' : '') + '><span>' + escape(model.goalTitle(entry.goal)) + '</span><small>' +
       escape(entryLabel(entry)) + (entry.goal.doneAt ? ' · 완료' : '') + '</small></label>').join('');
     showDialog('공유할 목표 고르기', '선택한 목표만 공유 이미지에 담겨요.',
       '<div class="share-controls"><button type="button" class="text-button" id="select-all">전체 선택</button>' +
       '<button type="button" class="text-button" id="clear-all">선택 해제</button><span class="share-count" id="share-count" aria-live="polite"></span></div>' +
       '<div class="share-list" id="share-list">' + sharingList + '</div>' +
-      '<label class="check-line"><input type="checkbox" id="include-photos"' + (includePhotos ? ' checked' : '') + '> 인증 사진도 포함</label>' +
+      '<label class="check-line"><input type="checkbox" id="include-photos"' + (includePhotos ? ' checked' : '') + '> 사진도 포함</label>' +
       '<p class="form-error" id="form-error" role="alert"></p>' +
       dialogActions(actionButton('close', '취소') + '<button type="button" id="prepare-share" class="button primary">공유 이미지 만들기</button>'));
     const list = $('share-list');
@@ -475,7 +471,7 @@
         if (!dialog.open || !prepare.isConnected) return;
         prepared = {
           file: new File([blob], '만다라트-공유-목표.png', {type: 'image/png'}),
-          text: entries.map(entry => (entry.goal.doneAt ? '✓ ' : '□ ') + entry.goal.text).join('\n'),
+          text: entries.map(entry => (entry.goal.doneAt ? '✓ ' : '□ ') + model.goalTitle(entry.goal)).join('\n'),
           selection, withPhotos
         };
         previewUrl = URL.createObjectURL(blob);
@@ -530,15 +526,17 @@
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed')), 'image/png'));
   }
 
-  function boardImage() {
+  async function boardImage() {
+    const photos = new Map(await Promise.all(model.populatedGoals(board).filter(entry => entry.goal.photo)
+      .map(async entry => [entry.id, await loadImage(entry.goal.photo)])));
     const canvas = document.createElement('canvas');
     canvas.width = 1260;
     canvas.height = 1360;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0d0d10';
+    ctx.fillStyle = '#111111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = canvasFont(27, 750);
-    ctx.fillStyle = '#d2bdff';
+    ctx.fillStyle = '#d8ef96';
     ctx.fillText('만다라트 메이트', 60, 65);
     ctx.font = canvasFont(42, 850);
     ctx.fillStyle = '#f6f5f9';
@@ -557,18 +555,29 @@
         const cy = y + 4 + Math.floor(pos / 3) * 122;
         const isCore = entry.kind === 'core';
         const areaColors = block === 4 && pos !== 4 ? model.palettes[pos] : colors;
-        const fill = isCore ? '#d2bdff' : entry.kind === 'goal' ? areaColors[0] : colors[1];
+        const fill = isCore ? '#f6f4dd' : !model.filled(entry.goal) ? '#252528' : entry.kind === 'goal' ? areaColors[0] : colors[1];
         rectangle(ctx, cx, cy, 120, 120, 6, fill);
+        const photo = photos.get(entry.id);
+        if (photo) {
+          const side = Math.min(photo.naturalWidth, photo.naturalHeight);
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(cx, cy, 120, 120, 6);
+          ctx.clip();
+          ctx.drawImage(photo, (photo.naturalWidth - side) / 2, (photo.naturalHeight - side) / 2, side, side, cx, cy, 120, 120);
+          if (entry.goal.text) rectangle(ctx, cx, cy + 83, 120, 37, 0, fill);
+          ctx.restore();
+        }
         if (entry.goal.doneAt) {
-          rectangle(ctx, cx + 92, cy + 5, 22, 22, 5, isCore ? '#211532' : areaColors[3]);
+          rectangle(ctx, cx + 92, cy + 5, 22, 22, 5, '#d7ed85');
           ctx.font = canvasFont(16, 750);
-          ctx.fillStyle = isCore ? '#d2bdff' : '#121216';
+          ctx.fillStyle = '#25291b';
           ctx.fillText('✓', cx + 103, cy + 16);
         }
         ctx.font = canvasFont(18, isCore ? 800 : 650);
-        ctx.fillStyle = isCore ? '#211532' : entry.kind === 'goal' ? areaColors[3] : '#f6f5f9';
-        const lines = writeLines(ctx, entry.goal.text, 104, 4);
-        lines.forEach((line, i) => ctx.fillText(line, cx + 60, cy + 60 + (i - (lines.length - 1) / 2) * 20));
+        ctx.fillStyle = '#191b13';
+        const lines = writeLines(ctx, entry.goal.text, 104, photo ? 1 : 4);
+        lines.forEach((line, i) => ctx.fillText(line, cx + 60, cy + (photo ? 101 : 60) + (i - (lines.length - 1) / 2) * 20));
       }
     }
     return toPng(canvas);
@@ -580,14 +589,14 @@
     canvas.width = 800;
     ctx.font = canvasFont(24, 720);
     const items = entries.map(entry => {
-      const hasPhoto = withPhotos && Boolean(entry.goal.doneAt && entry.goal.photo);
-      const lines = writeLines(ctx, entry.goal.text, hasPhoto ? 490 : 610, 4);
+      const hasPhoto = withPhotos && Boolean(entry.goal.photo);
+      const lines = writeLines(ctx, model.goalTitle(entry.goal), hasPhoto ? 490 : 610, 4);
       return {entry, hasPhoto, lines, height: Math.max(hasPhoto ? 112 : 82, 53 + lines.length * 30)};
     });
     canvas.height = 158 + items.reduce((sum, item) => sum + item.height + 8, 0) + 22;
-    ctx.fillStyle = '#0d0d10';
+    ctx.fillStyle = '#111111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#d2bdff';
+    ctx.fillStyle = '#d8ef96';
     ctx.font = canvasFont(22, 750);
     ctx.fillText('만다라트 메이트', 42, 52);
     ctx.font = canvasFont(38, 850);
@@ -596,8 +605,8 @@
     for (const item of items) {
       rectangle(ctx, 40, y, 720, item.height, 12, '#202027');
       const done = item.entry.goal.doneAt;
-      rectangle(ctx, 55, y + 18, 26, 26, 5, done ? '#d2bdff' : '#32313c');
-      ctx.fillStyle = done ? '#211532' : '#d2bdff';
+      rectangle(ctx, 55, y + 18, 26, 26, 5, done ? '#d8ef96' : '#32313c');
+      ctx.fillStyle = done ? '#232817' : '#d8ef96';
       ctx.font = canvasFont(17, 750);
       ctx.fillText(done ? '✓' : '○', 61, y + 37);
       ctx.fillStyle = '#f6f5f9';
@@ -675,8 +684,7 @@
   function readScreen() {
     const fragment = location.hash;
     const area = /^#area-([1-8])$/.exec(fragment);
-    view = fragment === '#completed' ? 'completed' : 'board';
-    boardMode = fragment === '#board' ? 'grid' : 'areas';
+    view = fragment === '#completed' ? 'completed' : fragment === '#mates' ? 'mates' : 'board';
     activeGroup = area ? Number(area[1]) - 1 : null;
   }
 
@@ -685,13 +693,14 @@
     render();
     window.scrollTo(0, 0);
     $('main').focus({preventScroll: true});
+    if (view === 'mates') window.Mates.open();
   }
 
-  function switchView(next, mode = 'areas', group = null) {
-    const fragment = next === 'completed' ? '#completed' :
-      group !== null ? '#area-' + (group + 1) : mode === 'grid' ? '#board' : '#areas';
-    if ((location.hash || '#areas') !== fragment) {
-      history.pushState({mandalartFrom: location.hash || '#areas'}, '', fragment);
+  function switchView(next, group = null) {
+    const fragment = next === 'completed' ? '#completed' : next === 'mates' ? '#mates' :
+      group !== null ? '#area-' + (group + 1) : '#board';
+    if ((location.hash || '#board') !== fragment) {
+      history.pushState({mandalartFrom: location.hash || '#board'}, '', fragment);
     }
     showScreen();
   }
@@ -714,7 +723,7 @@
       else toast('이 영역의 실행 목표가 모두 채워졌어요.');
       return;
     }
-    if (!board.core.text) {
+    if (!model.filled(board.core)) {
       openEditor('core');
       return;
     }
@@ -723,7 +732,7 @@
 
   async function toggleCompletion(id) {
     const entry = model.locate(board, id);
-    if (!entry?.goal.text) return;
+    if (!entry || !model.filled(entry.goal)) return;
     savePending = true;
     const done = !entry.goal.doneAt;
     const control = document.querySelector('[data-complete="' + id + '"]');
@@ -742,20 +751,15 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-mode], [data-open-area], [data-complete], [data-photo], [data-add-to]');
+    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-open-area], [data-complete], [data-photo], [data-add-to]');
     if (!control || loading || savePending) return;
     if (control.dataset.view) {
       event.preventDefault();
       switchView(control.dataset.view);
       return;
     }
-    if (control.dataset.mode) {
-      if (boardMode !== control.dataset.mode) switchView('board', control.dataset.mode);
-      document.querySelector('[data-mode="' + control.dataset.mode + '"]')?.focus({preventScroll: true});
-      return;
-    }
     if (control.dataset.openArea !== undefined) {
-      switchView('board', 'areas', Number(control.dataset.openArea));
+      switchView('board', Number(control.dataset.openArea));
       return;
     }
     if (control.dataset.edit) {
@@ -784,14 +788,16 @@
         startAdd();
         break;
       case 'areas':
-        if (history.state?.mandalartFrom === '#areas') history.back();
+        if (['#board', '#areas'].includes(history.state?.mandalartFrom)) history.back();
         else switchView('board');
         break;
       case 'blank':
         confirmChange('빈 목표판에서 시작할까요?', '현재 목표, 완료 기록, 인증 사진을 모두 지우고 새로 시작해요.', async () => {
           const empty = model.createBoard();
           await persist(empty);
+          const previous = board;
           board = empty;
+          window.Mates.changed(previous, board);
           activeGroup = null;
         }, '빈 목표판을 만들었어요.', '새로 시작');
         break;
@@ -816,10 +822,15 @@
       case 'save-share-image':
         if (prepared) download(prepared.file, prepared.file.name);
         break;
+      case 'images':
+        showDialog('이미지 저장', '', '<div class="image-actions">' +
+          actionButton('export', '9×9 전체판 저장', 'primary') + actionButton('share', '고른 목표를 이미지로 저장') + '</div>');
+        break;
       case 'export':
         try {
           const blob = await boardImage();
           download(blob, '내-만다라트.png');
+          closeDialog();
           toast('목표판 이미지 다운로드를 시작했어요.');
         } catch {
           toast('이미지를 만들지 못했어요. 다시 시도해 주세요.');
@@ -838,7 +849,7 @@
   });
 
   async function start() {
-    const exportButton = document.querySelector('[data-action="export"]');
+    const exportButton = document.querySelector('[data-action="images"]');
     exportButton.innerHTML = icon('download');
     try {
       const saved = await loadBoard();
@@ -846,9 +857,16 @@
     } catch {
       toast('저장한 목표를 불러오지 못했어요.');
     }
+    const invite = new URL(location.href).searchParams.get('mate');
+    if (/^[A-F0-9]{14}$/.test(invite ?? '') && location.hash !== '#mates') {
+      history.replaceState(history.state, '', '#mates');
+    }
     loading = false;
+    window.Mates.configure({board: () => board, label: entryLabel, icon, escape, dialog: showDialog,
+      close: closeDialog, toast, refresh: render});
     readScreen();
     render();
+    if (view === 'mates') window.Mates.open();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }

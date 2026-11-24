@@ -2,15 +2,15 @@
   'use strict';
 
   const palettes = [
-    ['#22362b', '#171e1b', '#29352f', '#99e0b1'],
-    ['#332740', '#201b27', '#382e43', '#d2b0f6'],
-    ['#24344a', '#191f2a', '#2c384a', '#a4c8ff'],
-    ['#3b2936', '#251c23', '#3c303b', '#f3adc9'],
-    ['#292533', '#1e1c23', '#36323e', '#d2bdff'],
-    ['#393023', '#242019', '#3e362c', '#edc78b'],
-    ['#203736', '#172221', '#2c3a39', '#8de0d5'],
-    ['#36293c', '#241d28', '#3c3141', '#e9abe8'],
-    ['#243643', '#1a222b', '#2d3a46', '#94d3f5']
+    ['#d4ef9b', '#eaf6cf', '#191c15', '#c3e17e'],
+    ['#ffe28c', '#fff1bc', '#1c1913', '#ffd56b'],
+    ['#bce0f7', '#dcf0fc', '#171c20', '#98caee'],
+    ['#f8c5b6', '#fadfd5', '#211715', '#f1ae9d'],
+    ['#f6f4dd', '#252528', '#212124', '#e4e9aa'],
+    ['#f8d3a6', '#fce7d0', '#221b16', '#f5b877'],
+    ['#b9ebd9', '#dbf4e9', '#151d19', '#9cdbc2'],
+    ['#f3cce4', '#f9e2ef', '#221921', '#e9abc9'],
+    ['#d9cef4', '#ebe3f9', '#1b1821', '#c5b3ec']
   ];
   const groups = [0, 1, 2, 3, 5, 6, 7, 8];
   const positions = [0, 1, 2, 3, 5, 6, 7, 8];
@@ -25,6 +25,9 @@
     ['여행', '여행지 고르기', '경비 모으기', '동네 탐방', '주말 기차여행', '지도에 표시', '기록 남기기']
   ];
   const exampleDone = new Set([0, 4, 8, 11, 16, 24, 26, 32, 36, 41, 48, 56, 57]);
+
+  function filled(goal) { return Boolean(goal.text || goal.photo); }
+  function goalTitle(goal) { return goal.text || (goal.photo ? '사진 기록' : ''); }
 
   function emptyGoal(text = '') { return {text, doneAt: null, photo: null}; }
 
@@ -75,11 +78,11 @@
     return [locate(board, 'core'), ...board.goals.flatMap((group, index) => [
       locate(board, index + ':main'),
       ...group.actions.map((goal, actionIndex) => locate(board, index + ':' + actionIndex))
-    ])].filter(entry => entry.goal.text);
+    ])].filter(entry => filled(entry.goal));
   }
 
   function progress(board) {
-    const actions = actionEntries(board).filter(entry => entry.goal.text);
+    const actions = actionEntries(board).filter(entry => filled(entry.goal));
     const completed = populatedGoals(board)
       .filter(entry => entry.goal.doneAt)
       .sort((a, b) => Date.parse(b.goal.doneAt) - Date.parse(a.goal.doneAt));
@@ -90,12 +93,12 @@
 
   function nextGroupSlot(board, groupIndex) {
     const group = board.goals[groupIndex];
-    if (!group.main.text) return groupIndex + ':main';
-    const index = group.actions.findIndex(goal => !goal.text);
+    if (!filled(group.main)) return groupIndex + ':main';
+    const index = group.actions.findIndex(goal => !filled(goal));
     return index >= 0 ? groupIndex + ':' + index : null;
   }
 
-  const api = {palettes, groups, createBoard, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
+  const api = {palettes, groups, createBoard, filled, goalTitle, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Mandalart = api;
 })(globalThis);
