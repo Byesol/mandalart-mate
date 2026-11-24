@@ -127,6 +127,15 @@ async function storePhoto(env, user, request) {
   await env.BUCKET.put(photoKey(user, id), bytes, {httpMetadata: {contentType: 'image/jpeg'}});
 }
 
+async function mateBoard(db, user, url) {
+  const peer = await findMate(db, user, url.searchParams.get('code'));
+  const posts = await rows(db, 'SELECT goal_id AS id, title, area, tint, done_at AS doneAt, updated_at AS updatedAt, ' +
+    'allow_photo * has_photo AS hasPhoto FROM mate_posts WHERE owner = ? AND receiver = ? ' +
+    'AND EXISTS (SELECT 1 FROM mate_links WHERE low = ? AND high = ? AND status = ?) ORDER BY goal_id',
+    peer.id, user, ...sortedPair(user, peer.id), 'accepted');
+  return {name: peer.name, posts};
+}
+
 async function receivePhoto(env, user, url) {
   const owner = await findMate(env.DB, user, url.searchParams.get('code'));
   const id = url.searchParams.get('id');
@@ -179,6 +188,7 @@ async function matesApi(request, env, url) {
   const route = url.pathname.slice('/api/mates/'.length);
   if (request.method === 'GET') {
     if (route === 'state') return json(await state(db, user));
+    if (route === 'board') return json(await mateBoard(db, user, url));
     if (route === 'photo') return receivePhoto(env, user, url);
   }
   if (request.method === 'PUT' && route === 'photo') {

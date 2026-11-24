@@ -26,7 +26,8 @@
     download: '<path d="M12 4v11m-4-4 4 4 4-4M5 17v3h14v-3"/>'
   };
   const navigation = [
-    ['board', 'grid', '목표판'],
+    ['board', 'grid', '홈'],
+    ['areas', 'list', '목표 영역'],
     ['mates', 'people', '메이트'],
     ['completed', 'checkCircle', '완료 기록']
   ];
@@ -34,6 +35,10 @@
   let board = model.createBoard(true);
   let view = 'board';
   let activeGroup = null;
+  let homeMate = '';
+  let matePreview = null;
+  let mateError = '';
+  let homeRequest = 0;
   let toastTimer;
   let dbPromise;
   let loading = true;
@@ -103,14 +108,14 @@
     toastTimer = setTimeout(() => $('toast').classList.remove('visible'), 3200);
   }
 
-  function groupLabel(index) {
-    return board.goals[index].main.text || '영역 ' + (index + 1);
+  function groupLabel(index, source = board) {
+    return source.goals[index].main.text || '영역 ' + (index + 1);
   }
 
-  function entryLabel(entry) {
+  function entryLabel(entry, source = board) {
     if (entry.kind === 'core') return '중심 목표';
     if (entry.kind === 'goal') return '영역 목표';
-    return groupLabel(entry.groupIndex);
+    return groupLabel(entry.groupIndex, source);
   }
 
   const areaIcons = ['pulse', 'growth', 'work', 'heart', 'wallet', 'people', 'spark', 'compass'];
@@ -153,8 +158,9 @@
         '</strong><small>' + progress.label + '</small></span></span>' + progress.meter + '</button>';
     }).join('');
     const sample = board.sample ? '<button type="button" class="text-button sample-chip" data-action="blank">예시 비우고 시작</button>' : '';
-    return '<section aria-labelledby="areas-title"><div class="section-heading"><h2 id="areas-title">목표 영역 8개</h2>' +
-      sample + '</div>' +
+    return '<section class="areas-page" aria-labelledby="areas-title"><div class="page-heading">' +
+      '<div><h1 id="areas-title">목표 영역</h1><p>실행 목표를 관리할 영역을 고르세요.</p></div></div>' +
+      '<div class="area-cards-heading"><span>8개 영역</span>' + sample + '</div>' +
       '<div class="area-grid">' + cards + '</div></section>';
   }
 
@@ -166,35 +172,111 @@
       '" aria-label="실행 목표 진행률"></progress><small>' + stats.done + ' / ' + stats.total + ' 완료</small></div></section>';
   }
 
-  function renderGridBlock(block) {
+  function renderGridBlock(block, source = board, readonly = false) {
     const colors = model.palettes[block];
     const cells = Array.from({length: 9}, (_, position) => {
-      const entry = model.boardCell(board, block, position);
+      const entry = model.boardCell(source, block, position);
       const goal = entry.goal;
       const mirrored = block === 4 && position !== 4 ? model.palettes[position] : null;
       const accent = mirrored ? ' style="--block:' + mirrored[0] + ';--area:' + mirrored[3] + '"' : '';
       const cellType = entry.kind === 'action' ? '' : ' ' + entry.kind;
-      const name = entry.kind === 'action' ? entryLabel(entry) + ' 실행 목표' : entryLabel(entry);
+      const name = entry.kind === 'action' ? entryLabel(entry, source) + ' 실행 목표' : entryLabel(entry, source);
       const filled = model.filled(goal);
       const label = name + (filled ? ' · ' + model.goalTitle(goal) : ' 추가') + (goal.photo ? ' · 사진 첨부' : '') +
         (goal.doneAt ? ' · 완료' : '');
       const mark = goal.doneAt ? '<span class="cell-mark">' + icon('check') + '</span>' : '';
       const photo = goal.photo ? '<img class="cell-photo" src="' + escape(goal.photo) + '" alt="">' : '';
       const caption = goal.text ? '<span class="cell-text">' + escape(goal.text) + '</span>' : '';
-      return '<button type="button" class="cell' + cellType + (goal.doneAt ? ' done' : '') + (filled ? '' : ' empty') +
-        (goal.photo ? ' photographed' : '') + '" data-edit="' + entry.id + '" aria-label="' + escape(label) + '"' + accent + '>' +
-        (filled ? photo + caption : icon('plus')) + mark + '</button>';
+      const className = 'cell' + cellType + (goal.doneAt ? ' done' : '') + (filled ? '' : ' empty') +
+        (goal.photo ? ' photographed' : '');
+      if (readonly && !filled) return '<div class="' + className + ' unshared" aria-hidden="true"></div>';
+      const attribute = readonly ? 'data-mate-goal' : 'data-edit';
+      return '<button type="button" class="' + className + '" ' + attribute + '="' + entry.id +
+        '" aria-label="' + escape(label) + '"' + accent + '>' + (filled ? photo + caption : icon('plus')) + mark + '</button>';
     }).join('');
     return '<div class="block" style="--block:' + colors[0] + ';--cell:' + colors[1] +
       ';--block-line:' + colors[2] + ';--area:' + colors[3] + '" role="group" aria-label="' +
-      escape(block === 4 ? '중심 목표와 영역 목표' : groupLabel(model.groups.indexOf(block))) + '">' + cells + '</div>';
+      escape(block === 4 ? '중심 목표와 영역 목표' : groupLabel(model.groups.indexOf(block), source)) + '">' + cells + '</div>';
   }
 
-  function renderGrid() {
-    const blocks = Array.from({length: 9}, (_, block) => renderGridBlock(block)).join('');
+  function renderGrid(source = board, readonly = false) {
+    const blocks = Array.from({length: 9}, (_, block) => renderGridBlock(block, source, readonly)).join('');
     return '<section class="panel grid-panel" aria-label="9×9 만다라트 목표판">' +
       '<div class="board-scroll"><div class="board">' + blocks + '</div></div>' +
-      '<p class="board-hint">칸을 눌러 목표와 사진을 넣으세요.</p></section>';
+      '</section>';
+  }
+
+  function homeRail() {
+    const tones = ['#fcf5dd', '#e1fb78', '#ffdb78', '#bce4fd', '#ffd0bd'];
+    const members = window.Mates.homeMembers();
+    const chips = members.map((mate, index) => {
+      const initial = Array.from(mate.name.trim())[0] || 'M';
+      return '<button class="home-avatar-button" type="button" data-home-mate="' + escape(mate.code) +
+        '" aria-pressed="' + (homeMate === mate.code) + '"><span class="home-avatar" style="--avatar-tone:' +
+        tones[(index + 1) % tones.length] + '">' + escape(initial) + '</span><span class="home-avatar-name">' +
+        escape(mate.name) + '</span>' + (mate.sample ? '<small>예시</small>' : '') + '</button>';
+    }).join('');
+    return '<div class="home-avatars"><button class="home-avatar-button" type="button" data-view="board" aria-pressed="' +
+      !homeMate + '"><span class="home-avatar home-self">' + icon('grid') + '</span><span class="home-avatar-name">내 목표판</span></button>' +
+      chips + '<button class="home-avatar-button" type="button" data-view="mates"><span class="home-avatar home-add">' +
+      icon('plus') + '</span><span class="home-avatar-name">메이트 추가</span></button></div>';
+  }
+
+  function toMateBoard(preview) {
+    const result = model.createBoard();
+    for (const post of preview.posts) {
+      const entry = model.locate(result, post.id);
+      if (!entry) continue;
+      Object.assign(entry.goal, {text: post.title, doneAt: post.doneAt || null, photo: post.photo || null});
+    }
+    return result;
+  }
+
+  function homePanel() {
+    if (!homeMate) {
+      return renderMission(model.progress(board)) + renderGrid() +
+        '<p class="board-hint">칸을 눌러 목표와 사진을 넣으세요.</p>';
+    }
+    if (mateError) {
+      return '<div class="panel"><p class="empty-note">' + escape(mateError) + '</p>' +
+        '<button type="button" class="button secondary" data-action="refresh-mate">다시 불러오기</button></div>';
+    }
+    const known = window.Mates.homeMembers().find(mate => mate.code === homeMate);
+    const preview = matePreview ?? window.Mates.sampleBoard(homeMate);
+    const name = preview?.name ?? known?.name ?? '메이트';
+    return '<div class="page-heading friend-heading"><div><h1>' + escape(name) + '님의 만다라트</h1><p>' +
+      (preview?.sample ? '예시 목표판' : preview ? '나에게 공개한 목표 ' + preview.posts.length + '개' : '목표를 불러오는 중이에요.') +
+      '</p></div></div>' + (preview ? renderGrid(toMateBoard(preview), true) : '');
+  }
+
+  async function refreshHome() {
+    const request = ++homeRequest;
+    const key = homeMate;
+    window.Mates.refreshHome().then(() => {
+      if (view === 'board' && request === homeRequest) $('home-mates').innerHTML = homeRail();
+    });
+    if (!key || window.Mates.sampleBoard(key)) return;
+    try {
+      const next = await window.Mates.boardFor(key);
+      if (request !== homeRequest || view !== 'board') return;
+      matePreview = next;
+      mateError = '';
+    } catch (reason) {
+      if (request !== homeRequest || view !== 'board') return;
+      matePreview = null;
+      mateError = reason.message;
+    }
+    $('home-board').innerHTML = homePanel();
+  }
+
+  function openMateGoal(id) {
+    const preview = matePreview ?? window.Mates.sampleBoard(homeMate);
+    const post = preview?.posts.find(item => item.id === id);
+    if (!post) return;
+    const state = post.doneAt ? '완료' : '진행 중';
+    const photo = post.photo ? '<div class="proof"><img src="' + escape(post.photo) + '" alt="' + escape(post.title) +
+      ' 사진"></div>' : '';
+    showDialog(post.title, [preview.name, post.area, state].filter(Boolean).join(' · '), photo);
   }
 
   function taskRow(goal, groupIndex, index) {
@@ -250,6 +332,7 @@
   function render() {
     const stats = model.progress(board);
     const nav = navMarkup();
+    document.querySelector('[data-action="images"]').hidden = view === 'board' && !!homeMate;
     $('desktop-nav').innerHTML = nav;
     $('mobile-nav').innerHTML = nav;
     if (view === 'mates') {
@@ -261,10 +344,13 @@
       return;
     }
     const main = $('main-view');
+    if (view === 'board') {
+      main.innerHTML = '<nav id="home-mates" aria-label="홈의 메이트">' + homeRail() +
+        '</nav><div id="home-board">' + homePanel() + '</div>';
+      return;
+    }
     const wasExpanded = main.querySelector('.area-board[data-area="' + activeGroup + '"]')?.open;
-    main.innerHTML = activeGroup === null
-      ? renderMission(stats) + renderGrid() + renderAreas()
-      : renderArea(activeGroup);
+    main.innerHTML = activeGroup === null ? renderAreas() : renderArea(activeGroup);
     if (wasExpanded) main.querySelector('.area-board').open = true;
   }
 
@@ -365,7 +451,7 @@
         }));
         dialog.close();
         if (navigateTo === null) render();
-        else switchView('board', navigateTo);
+        else switchView('areas', navigateTo);
         document.querySelector('[data-edit="' + id + '"]')?.focus({preventScroll: true});
         toast(done && !goal.doneAt ? '목표를 완료했어요!' : '목표를 저장했어요.');
       } catch {
@@ -684,7 +770,15 @@
   function readScreen() {
     const fragment = location.hash;
     const area = /^#area-([1-8])$/.exec(fragment);
-    view = fragment === '#completed' ? 'completed' : fragment === '#mates' ? 'mates' : 'board';
+    const mate = /^#mate-([A-F0-9]{14}|demo-jiu|demo-seoyeon)$/.exec(fragment);
+    const code = mate?.[1] ?? '';
+    if (code !== homeMate) {
+      matePreview = null;
+      mateError = '';
+    }
+    homeMate = code;
+    view = fragment === '#completed' ? 'completed' : fragment === '#mates' ? 'mates' :
+      fragment === '#areas' || area ? 'areas' : 'board';
     activeGroup = area ? Number(area[1]) - 1 : null;
   }
 
@@ -694,15 +788,16 @@
     window.scrollTo(0, 0);
     $('main').focus({preventScroll: true});
     if (view === 'mates') window.Mates.open();
+    if (view === 'board') refreshHome();
+  }
+
+  function goTo(fragment) {
+    if ((location.hash || '#board') !== fragment) history.pushState({mandalartFrom: location.hash || '#board'}, '', fragment);
+    showScreen();
   }
 
   function switchView(next, group = null) {
-    const fragment = next === 'completed' ? '#completed' : next === 'mates' ? '#mates' :
-      group !== null ? '#area-' + (group + 1) : '#board';
-    if ((location.hash || '#board') !== fragment) {
-      history.pushState({mandalartFrom: location.hash || '#board'}, '', fragment);
-    }
-    showScreen();
+    goTo(group === null ? '#' + next : '#area-' + (group + 1));
   }
 
   function openAddPicker() {
@@ -751,15 +846,23 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-open-area], [data-complete], [data-photo], [data-add-to]');
+    const control = event.target.closest('[data-action], [data-view], [data-edit], [data-open-area], [data-complete], [data-photo], [data-add-to], [data-home-mate], [data-mate-goal]');
     if (!control || loading || savePending) return;
     if (control.dataset.view) {
       event.preventDefault();
       switchView(control.dataset.view);
       return;
     }
+    if (control.dataset.homeMate) {
+      goTo('#mate-' + control.dataset.homeMate);
+      return;
+    }
+    if (control.dataset.mateGoal) {
+      openMateGoal(control.dataset.mateGoal);
+      return;
+    }
     if (control.dataset.openArea !== undefined) {
-      switchView('board', Number(control.dataset.openArea));
+      switchView('areas', Number(control.dataset.openArea));
       return;
     }
     if (control.dataset.edit) {
@@ -788,8 +891,13 @@
         startAdd();
         break;
       case 'areas':
-        if (['#board', '#areas'].includes(history.state?.mandalartFrom)) history.back();
-        else switchView('board');
+        if (history.state?.mandalartFrom === '#areas') history.back();
+        else switchView('areas');
+        break;
+      case 'refresh-mate':
+        mateError = '';
+        $('home-board').innerHTML = homePanel();
+        refreshHome();
         break;
       case 'blank':
         confirmChange('빈 목표판에서 시작할까요?', '현재 목표, 완료 기록, 인증 사진을 모두 지우고 새로 시작해요.', async () => {
@@ -853,7 +961,10 @@
     exportButton.innerHTML = icon('download');
     try {
       const saved = await loadBoard();
-      if (saved?.version === 1) board = saved;
+      if (saved?.version === 1) {
+        board = saved;
+        if (model.seedSamplePhotos(board)) await persist(board);
+      }
     } catch {
       toast('저장한 목표를 불러오지 못했어요.');
     }
@@ -867,6 +978,7 @@
     readScreen();
     render();
     if (view === 'mates') window.Mates.open();
+    if (view === 'board') refreshHome();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }

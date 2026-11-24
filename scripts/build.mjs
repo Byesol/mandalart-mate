@@ -10,7 +10,11 @@ const formats = {
   'sw.js': 'text/javascript; charset=utf-8',
   'manifest.webmanifest': 'application/manifest+json; charset=utf-8',
   'icon-192.png': 'image/png',
-  'icon-512.png': 'image/png'
+  'icon-512.png': 'image/png',
+  'demo-run.jpg': 'image/jpeg',
+  'demo-read.jpg': 'image/jpeg',
+  'demo-walk.jpg': 'image/jpeg',
+  'demo-fruit.jpg': 'image/jpeg'
 };
 const assets = Object.fromEntries(await Promise.all(Object.entries(formats).map(async ([file, type]) => [
   '/' + file, {type, data: (await readFile(new URL('web/' + file, root))).toString('base64')}

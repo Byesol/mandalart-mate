@@ -32,7 +32,7 @@
   function emptyGoal(text = '') { return {text, doneAt: null, photo: null}; }
 
   function createBoard(sample = false) {
-    return {
+    const board = {
       version: 1,
       sample,
       core: emptyGoal(sample ? '올해 더 나은 나' : ''),
@@ -49,6 +49,19 @@
         })
       }))
     };
+    seedSamplePhotos(board);
+    return board;
+  }
+
+  function seedSamplePhotos(board) {
+    if (!board.sample || board.samplePhotosSeeded) return false;
+    const fixtures = [[0, 2, 'run'], [1, 0, 'read'], [3, 3, 'walk'], [6, 1, 'fruit']];
+    for (const [group, slot, photo] of fixtures) {
+      const goal = board.goals[group].actions[slot];
+      if (goal.text === examples[group][slot + 1] && !goal.photo) goal.photo = './demo-' + photo + '.jpg';
+    }
+    board.samplePhotosSeeded = true;
+    return true;
   }
 
   function locate(board, id) {
@@ -98,7 +111,7 @@
     return index >= 0 ? groupIndex + ':' + index : null;
   }
 
-  const api = {palettes, groups, createBoard, filled, goalTitle, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
+  const api = {palettes, groups, createBoard, seedSamplePhotos, filled, goalTitle, emptyGoal, locate, boardCell, populatedGoals, progress, nextGroupSlot};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Mandalart = api;
 })(globalThis);

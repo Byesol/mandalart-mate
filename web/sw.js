@@ -1,7 +1,7 @@
 'use strict';
 
-const cacheName = 'mandalart-mate-shell-v5';
-const shell = ['./', './index.html', './styles.css', './model.js', './app.js', './mates.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const cacheName = 'mandalart-mate-shell-v6';
+const shell = ['./', './index.html', './styles.css', './model.js', './app.js', './mates.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './demo-run.jpg', './demo-read.jpg', './demo-walk.jpg', './demo-fruit.jpg'];
 const shellUrls = new Set(shell.map(file => new URL(file, self.registration.scope).href));
 
 self.addEventListener('install', event => {

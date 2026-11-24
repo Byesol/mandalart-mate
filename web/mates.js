@@ -12,6 +12,28 @@
   const reactions = {heart: '💛', clap: '👏', fire: '🔥'};
   const reactionLabels = {heart: '마음', clap: '박수', fire: '응원'};
   const date = new Intl.DateTimeFormat('ko-KR', {month: 'long', day: 'numeric'});
+  const sampleMates = [
+    {code: 'demo-jiu', name: '지우', sample: true, tint: 0, posts: [
+      {id: 'core', title: '작은 습관 만들기'},
+      {id: '0:main', title: '움직이기'},
+      {id: '0:2', title: '아침 러닝', photo: './demo-run.jpg', doneAt: '2026-11-22T00:20:00Z'},
+      {id: '0:4', title: '공원 산책', photo: './demo-walk.jpg'},
+      {id: '1:main', title: '배우기'},
+      {id: '1:0', title: '책 10쪽 읽기', photo: './demo-read.jpg', doneAt: '2026-11-23T00:30:00Z'},
+      {id: '3:main', title: '쉬어가기'},
+      {id: '3:3', title: '주말 산책'}
+    ]},
+    {code: 'demo-seoyeon', name: '서연', sample: true, tint: 3, posts: [
+      {id: 'core', title: '나에게 다정한 일상'},
+      {id: '1:main', title: '좋아하는 책'},
+      {id: '1:1', title: '커피와 독서', photo: './demo-read.jpg'},
+      {id: '3:main', title: '마음 돌보기'},
+      {id: '3:0', title: '햇볕 쬐기', photo: './demo-walk.jpg', doneAt: '2026-11-23T03:00:00Z'},
+      {id: '6:main', title: '집에서 요리'},
+      {id: '6:4', title: '제철 과일', photo: './demo-fruit.jpg', doneAt: '2026-11-22T03:00:00Z'}
+    ]}
+  ];
+
 
   function active() {
     return Boolean(document.querySelector('.mates-page'));
@@ -52,6 +74,47 @@
     return loading;
   }
 
+  function homeMembers() {
+    const friends = data?.connections.filter(item => item.status === 'accepted') ?? [];
+    return [...friends, ...sampleMates];
+  }
+
+  function refreshHome() {
+    return load(false).catch(() => {});
+  }
+
+  function sampleBoard(code) {
+    return sampleMates.find(mate => mate.code === code);
+  }
+
+  async function boardFor(code) {
+    const sample = sampleBoard(code);
+    if (sample) return sample;
+    const board = await request('board?code=' + encodeURIComponent(code));
+    return {...board, code, posts: board.posts.map(post => ({
+      ...post,
+      photo: post.hasPhoto ? photoUrl(code, post) : null
+    }))};
+  }
+
+  function photoUrl(code, post) {
+    return './api/mates/photo?code=' + encodeURIComponent(code) + '&id=' + encodeURIComponent(post.id) +
+      '&v=' + encodeURIComponent(post.updatedAt);
+  }
+
+  async function photoData(source) {
+    if (!/^\.\/demo-(run|read|walk|fruit)\.jpg$/.test(source)) return source;
+    const response = await fetch(source);
+    if (!response.ok) throw new Error('예시 사진을 불러오지 못했어요.');
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('사진을 읽지 못했어요.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   function avatar(name, index = 4) {
     return '<span class="mate-avatar" style="--friend-color:' + window.Mandalart.palettes[index][0] + '" aria-hidden="true">' +
       app.escape(Array.from(name.trim())[0] || 'M') + '</span>';
@@ -64,8 +127,7 @@
 
   function feedCard(post) {
     const color = window.Mandalart.palettes[post.tint][0];
-    const source = './api/mates/photo?code=' + encodeURIComponent(post.code) + '&id=' + encodeURIComponent(post.id) +
-      '&v=' + encodeURIComponent(post.updatedAt);
+    const source = photoUrl(post.code, post);
     const picture = post.hasPhoto ? '<img class="mate-photo" src="' + source + '" alt="' + app.escape(post.title) + ' 사진" loading="lazy">' : '';
     const reactionButtons = Object.entries(reactions).map(([reaction, symbol]) =>
       '<button type="button" class="mate-reaction" data-mates-action="cheer" data-mate-code="' + post.code +
@@ -201,7 +263,7 @@
       submit(form, async () => {
         if (allowPhoto) {
           for (const entry of posts) {
-            if (entry.goal.photo) await request('photo', {id: entry.id, data: entry.goal.photo});
+            if (entry.goal.photo) await request('photo', {id: entry.id, data: await photoData(entry.goal.photo)});
           }
         }
         await request('sharing', {code, goals: posts.map(entry => ({...snapshot(entry, allowPhoto), allowPhoto}))});
@@ -242,7 +304,7 @@
             const entry = window.Mandalart.locate(board, id);
             if (window.Mandalart.filled(entry.goal)) {
               const allowPhoto = sharing.get(id);
-              if (allowPhoto && entry.goal.photo) await request('photo', {id, data: entry.goal.photo});
+              if (allowPhoto && entry.goal.photo) await request('photo', {id, data: await photoData(entry.goal.photo)});
               await request('goal', {goal: snapshot(entry, allowPhoto, board)});
             } else {
               await request('goal', {id});
@@ -354,5 +416,5 @@
     flush();
   }
 
-  window.Mates = {configure, changed, render, open};
+  window.Mates = {configure, changed, render, open, homeMembers, refreshHome, boardFor, sampleBoard};
 })();
